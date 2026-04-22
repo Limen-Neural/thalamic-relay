@@ -1,13 +1,14 @@
 [package]
-name = "spikenaut-fpga-supervisor"
+name = "thalamic-relay"
 version = "0.1.0"
 edition = "2024"
-description = "Live Hardware Supervisor for Spikenaut: Orchestrates GPU telemetry, FPGA brain pulses, and emergency brakes."
+description = "Lightweight CLI relay that observes telemetry and forwards normalized stimuli to FPGA/network backends."
 license = "GPL-3.0-only"
 
 [dependencies]
 # Core Logic
 anyhow = "1"
+neuromod = "0.4.0"
 tokio = { version = "1.36", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -22,14 +23,18 @@ regex = "1"
 
 # Hardware Interfaces
 nvml-wrapper = "0.10"
-serialport = "4.3"
 nix = { version = "0.29", features = ["signal", "process"] }
 rand = "0.8"
 rayon = "1.7.0"
 
-# External Spikenaut Libs
-spikenaut-fpga = { path = "../spikenaut-fpga" }
+# Core Backend Crates
+silicon-bridge = { path = "../silicon-bridge", features = ["uart"] }
+plasticity-lab = { package = "plascticity-lab", path = "../plasticity-lab" }
+metabolic-ledger = { path = "../metabolic-ledger" }
+limbic-critic = { path = "../limbic-critic", optional = true }
 
 [[bin]]
-name = "spikenaut-supervisor"
+name = "thalamic-relay"
 path = "src/main.rs"
+
+[workspace]
