@@ -13,6 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The serial backend (serialport -> libudev-sys) needs the libudev
+      # development headers and pkg-config to build.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libudev-dev
+
       # thalamic-relay depends on sibling crates via `../` path dependencies in
       # Cargo.toml, so they must be checked out next to this repo before any
       # cargo command (cargo metadata/fmt/clippy/build all need their manifests).
