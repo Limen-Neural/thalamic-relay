@@ -1,29 +1,37 @@
-# Spikenaut FPGA Supervisor
+# Thalamic Relay
 
-A live hardware supervisor for Spikenaut that orchestrates GPU telemetry, FPGA brain pulses, and emergency brakes.
+A lightweight CLI relay that observes hardware telemetry and forwards normalized
+stimuli to a spiking neural network and FPGA/network backends.
 
 ## Overview
 
-The Spikenaut FPGA Supervisor is a Rust-based hardware orchestration system that provides real-time monitoring and control of neuromorphic hardware components. It manages GPU telemetry collection, FPGA communication, and implements spiking neural network (SNN) inference engines for advanced neuromorphic research.
+Thalamic Relay is a Rust-based hardware orchestration relay that provides
+real-time monitoring of compute telemetry and drives a spiking neural network
+(SNN). It collects GPU/CPU telemetry, bridges to FPGA hardware for stimulus
+delivery and spike readback, and exposes a control/observability surface over
+UDP IPC and Prometheus metrics. The relay is platform-agnostic: it degrades
+gracefully to a software-only mode when no GPU or FPGA is present.
 
 ## Features
 
-- **GPU Telemetry**: Real-time monitoring of GPU performance metrics via NVML
-- **FPGA Bridge**: Serial communication with FPGA hardware for brain pulse orchestration
-- **Spiking Neural Networks**: Implementation of neuromorphic inference engines
-- **Hardware Supervision**: Live monitoring and emergency brake systems
-- **Research Tools**: Advanced neuromorphic research capabilities
+- **GPU Telemetry**: Real-time monitoring of GPU sensors via NVML (temperature,
+  power, clocks, fan, utilization) with a software fallback
+- **FPGA Bridge**: Stimulus delivery and spike readback through the
+  `silicon-bridge` backend
+- **Spiking Neural Networks**: In-process SNN stepping via the `neuromod` engine
+- **Control IPC**: UDP interface for streaming stimuli, applying reward signals,
+  and querying neuromodulator/spike state
 - **Metrics Collection**: Prometheus-compatible metrics export
-- **Process Safety**: Instance protection via lockfile mechanism
+- **Process Safety**: Single-instance protection via a lockfile mechanism
 
 ## Installation
 
 ### Prerequisites
 
-- Rust 2024 edition
-- CUDA-compatible GPU with NVML support
-- FPGA hardware connected via serial port
+- Rust 2024 edition (toolchain >= 1.85)
+- `pkg-config` and `libudev` development headers (needed by the serial backend)
 - Linux operating system (tested on Linux)
+- Optional: an NVIDIA GPU with NVML support, and an FPGA device on a serial port
 
 ### Build
 
@@ -34,62 +42,67 @@ cargo build --release
 ### Run
 
 ```bash
-cargo run --bin spikenaut-supervisor
+cargo run --bin thalamic-relay
 ```
 
 ## Usage
 
-The supervisor automatically detects FPGA hardware on standard USB serial ports (`/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyUSB2`) and initializes the monitoring systems.
+The relay automatically attempts to connect to FPGA hardware via the
+`silicon-bridge` backend. If no device is found it logs that it is running in
+software-only mode and continues stepping the in-process SNN.
 
-### Command Line Options
+While running it exposes two interfaces:
 
-The application supports environment-based configuration via the `clap` crate. Specific options can be viewed with:
-
-```bash
-cargo run --bin spikenaut-supervisor -- --help
-```
+- **UDP IPC** on `127.0.0.1:9898` (newline-free JSON messages):
+  - `{"type":"Stimuli","values":[/* up to 16 f32 */]}` — drive the network
+  - `{"type":"LearningReward","dopamine_delta":<f32>,"cortisol_delta":<f32>}` —
+    apply reward/stress modulation
+  - `{"type":"GetNeuroState"}` — returns a JSON snapshot of the current
+    neuromodulator levels and spike count
+- **Prometheus metrics** on `http://localhost:9000/metrics`
 
 ## Architecture
 
 ### Core Modules
 
 - **`gpu`**: Hardware bridge for GPU telemetry collection
-- **`fpga`**: Serial communication bridge for FPGA devices
-- **`snn`**: Spiking neural network inference engine
-- **`research`**: Neuromorphic research tools and utilities
-- **`trainer`**: Training utilities for neural networks
-- **`cpu`**: CPU monitoring and metrics collection
-- **`models`**: Data models for hardware and neural network components
+- **`fpga`**: Thin adapter over the `silicon-bridge` FPGA backend
+- **`cpu`**: Telemetry initialization and metrics collection
+- **`models`**: Shared data models for hardware components
+- **`trainer`**: Re-exports of offline/closed-loop training utilities
 
 ### Key Components
 
 1. **Hardware Bridge**: Abstract interface for GPU and FPGA communication
 2. **Telemetry System**: Real-time metrics collection and export
-3. **Inference Engine**: Optimized SNN implementation for neuromorphic computing
+3. **Inference Loop**: Steps the SNN and forwards normalized stimuli
 4. **Emergency Brakes**: Safety mechanisms for hardware protection
 
 ## Dependencies
 
 ### Core Dependencies
 - `tokio`: Async runtime with full features
-- `serde`: Serialization framework with derive support
-- `tracing`: Structured logging and telemetry
-- `metrics`: Metrics collection with Prometheus export
+- `serde` / `serde_json`: Serialization framework
+- `tracing` / `tracing-subscriber`: Structured logging and telemetry
+- `metrics` / `metrics-exporter-prometheus`: Metrics collection with Prometheus export
 - `anyhow`: Error handling
+- `neuromod`: Spiking neural network engine
 
 ### Hardware Interfaces
 - `nvml-wrapper`: GPU monitoring via NVIDIA Management Library
-- `serialport`: Serial communication for FPGA devices
 - `nix`: System interfaces for signal handling
 
-### External Libraries
-- `spikenaut-fpga`: Custom FPGA library (local dependency)
+### Workspace Backends (local path dependencies)
+- `silicon-bridge`: FPGA deployment and UART spike readback
+- `plasticity-lab`: Offline/closed-loop training utilities
+- `metabolic-ledger`: Resource accounting
+- `limbic-critic` (optional): Reward-based scheduling helpers
 
 ## Configuration
 
-The supervisor uses environment-based configuration. Key configuration areas include:
+The relay uses environment-based configuration. Key areas include:
 
-- Serial port paths for FPGA communication
+- Serial/FPGA backend discovery
 - GPU monitoring parameters
 - Metrics export endpoints
 - Logging levels and outputs
@@ -98,12 +111,8 @@ The supervisor uses environment-based configuration. Key configuration areas inc
 
 ### Prometheus Metrics
 
-The supervisor exports metrics compatible with Prometheus monitoring:
-
-- GPU utilization and temperature
-- FPGA communication status
-- Neural network inference metrics
-- System resource usage
+The relay exports metrics compatible with Prometheus monitoring, including
+GPU/FPGA telemetry, training loss, and system resource usage.
 
 ### Logging
 
@@ -111,45 +120,34 @@ Structured logging via `tracing` with configurable output levels.
 
 ## Safety Features
 
-- **Instance Protection**: Lockfile mechanism prevents multiple supervisor instances
+- **Instance Protection**: Lockfile mechanism prevents multiple relay instances
 - **Emergency Brakes**: Hardware protection mechanisms
-- **Graceful Shutdown**: Proper resource cleanup on termination
+- **Graceful Degradation**: Continues in software-only mode without GPU/FPGA
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0. See the
+[LICENSE](LICENSE) file for details.
 
 ## Contributing
 
-Contributions are welcome! Please ensure all submissions follow the project's coding standards and include appropriate tests.
-
-## Hardware Requirements
-
-- NVIDIA GPU with CUDA support
-- FPGA device with serial communication capability
-- Sufficient CPU resources for real-time processing
+Contributions are welcome! Please ensure all submissions follow the project's
+coding standards and include appropriate tests.
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Port Detection**: Ensure FPGA device is connected and accessible via `/dev/ttyUSB*`
+1. **FPGA Detection**: Ensure the FPGA device is connected and accessible to the
+   `silicon-bridge` backend
 2. **GPU Access**: Verify NVML installation and proper permissions
-3. **Instance Conflicts**: Check for existing supervisor processes using lockfile
+3. **Instance Conflicts**: Check for an existing relay process holding the lockfile
+   at `/tmp/thalamic_relay.lock`
 
 ### Debug Mode
 
 Enable debug logging for detailed troubleshooting:
 
 ```bash
-RUST_LOG=debug cargo run --bin spikenaut-supervisor
+RUST_LOG=debug cargo run --bin thalamic-relay
 ```
-
-## Research Applications
-
-This supervisor is designed for neuromorphic research applications including:
-
-- Spiking neural network experimentation
-- Hardware-software co-design
-- Real-time neuromorphic inference
-- Brain-inspired computing research
