@@ -24,7 +24,7 @@ The checkout location (`/workspace`) is fixed by the Cloud environment, and the
 `../` paths in `Cargo.toml` force the siblings to live in `/`, which is NOT
 persisted across VM rebuilds (only `/workspace` is). That non-persistence is
 expected and harmless here: the idempotent startup update script re-clones any
-missing siblings on every run, so they are always present before a build.
+Add an exception path (e.g., 'unless the user explicitly requests it') or escalation ('ask the user for confirmation').
 
 ### Toolchain / system deps
 
