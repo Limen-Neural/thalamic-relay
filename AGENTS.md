@@ -1,4 +1,4 @@
-Create SOUL.md or add a ## Identity section defining who the agent is, its tone, and behavior principles.
+Add a ## Boundaries section with clear rules about what's off-limits.
 
 ## Cursor Cloud specific instructions
 
