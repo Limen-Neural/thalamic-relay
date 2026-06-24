@@ -10,7 +10,7 @@ stimuli to a spiking neural network (software-only; silicon-bridge/FPGA (Field-P
 Thalamic Relay is a Rust-based hardware orchestration relay that provides
 real-time monitoring of compute telemetry and drives a spiking neural network
 (SNN). It collects GPU/CPU telemetry and steps an in-process SNN, exposing a
-control/observability surface over UDP IPC and Prometheus metrics. The relay is
+control/observability surface over **UDP (User Datagram Protocol)** IPC and Prometheus metrics. The relay is
 platform-agnostic: it degrades gracefully to a software-only mode when no GPU
 is present.
 
@@ -30,7 +30,7 @@ is present.
 ### Prerequisites
 
 - Rust 2024 edition (toolchain >= 1.85)
-- `pkg-config` and `libudev` development headers (needed by the serial backend)
+- `pkg-config` (used by some native dependencies)
 - Linux operating system (tested on Linux)
 - Optional: an NVIDIA GPU with NVML support
 

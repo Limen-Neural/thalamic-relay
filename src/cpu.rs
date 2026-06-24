@@ -52,7 +52,7 @@ pub async fn run_metrics_collector(metrics: Arc<Mutex<RelayMetrics>>) {
         };
 
         // Spike / stimulus metrics (Gauges go up and down)
-        gauge!("relay_spike_rate").set(snapshot.spike_count as f64);
+        gauge!("relay_spike_count").set(snapshot.spike_count as f64);
         gauge!("stimulus_apply_latency_ms").set(snapshot.stimulus_latency_ms);
         gauge!("telemetry_freshness_s").set(snapshot.telemetry_freshness_s);
 

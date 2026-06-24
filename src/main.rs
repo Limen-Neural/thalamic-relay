@@ -99,7 +99,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &udp_socket,
             &mut stimuli,
             &mut modulators,
-            &network,
             latest_spike_count,
         );
 
@@ -136,7 +135,6 @@ fn process_udp_messages(
     socket: &std::net::UdpSocket,
     stimuli: &mut [f32],
     modulators: &mut NeuroModulators,
-    network: &SpikingNetwork,
     latest_spike_count: usize,
 ) -> bool {
     let mut stimuli_applied = false;
@@ -167,9 +165,9 @@ fn process_udp_messages(
             }
             Some("GetNeuroState") => {
                 let state_json = serde_json::json!({
-                    "dopamine": network.modulators.dopamine,
-                    "cortisol": network.modulators.cortisol,
-                    "acetylcholine": network.modulators.acetylcholine,
+                    "dopamine": modulators.dopamine,
+                    "cortisol": modulators.cortisol,
+                    "acetylcholine": modulators.acetylcholine,
                     "lif_spike_count": latest_spike_count
                 });
                 if let Ok(encoded) = serde_json::to_string(&state_json) {
