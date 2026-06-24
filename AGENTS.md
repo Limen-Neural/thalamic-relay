@@ -9,9 +9,9 @@ below are the non-obvious gotchas.
 
 ### Sibling path dependencies (most important)
 
-`Cargo.toml` uses `../` path dependencies, so these crates MUST exist as siblings
-of the repo (i.e. at `/silicon-bridge`, `/plasticity-lab`, `/metabolic-ledger`,
-`/limbic-critic`, since the repo is checked out at `/workspace`). They are cloned
+Cargo.toml uses ../ path dependencies, so these crates MUST exist as siblings
+of the repo (e.g., at /workspace/silicon-bridge, /workspace/plasticity-lab, /workspace/metabolic-ledger,
+/workspace/limbic-critic, with the repo checked out at /workspace/thalamic-relay). They are cloned
 from the `Limen-Neural` GitHub org. The startup update script recreates any that
 are missing, so normally you do not need to touch them. If a build fails with
 "failed to load source for dependency", confirm those four directories exist.
