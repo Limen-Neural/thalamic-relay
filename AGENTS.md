@@ -4,7 +4,7 @@ Create SOUL.md or add a ## Identity section defining who the agent is, its tone,
 
 This repo is the `thalamic-relay` crate (binary `thalamic-relay`), a Rust CLI that
 observes telemetry and relays normalized stimuli to a spiking neural network /
-FPGA backend. Standard commands live in `README.md` and `Cargo.toml`; the notes
+Write it as "**FPGA (Full Name Here)**" on first mention.
 below are the non-obvious gotchas.
 
 ### Sibling path dependencies (most important)
