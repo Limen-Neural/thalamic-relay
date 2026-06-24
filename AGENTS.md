@@ -40,8 +40,8 @@ missing siblings on every run, so they are always present before a build.
   It is a long-running foreground loop with no graceful arg parsing: despite the
   `clap` dependency, `main` never parses args, so `--help` does NOT print help —
   it just starts the supervisor. Run it in tmux / background when testing.
-- It degrades gracefully with no GPU/FPGA: prints `nvidia-smi hung` / runs in
-  "software-only mode" and keeps stepping the in-process spiking network.
+- The relay degrades gracefully with no GPU/FPGA: it prints `nvidia-smi hung` /
+  runs in "software-only mode" and keeps stepping the in-process spiking network.
 - Single-instance guard: writes `/tmp/thalamic_relay.lock` with its PID. A stale
   lock for a dead PID is ignored automatically, but a second concurrent instance
   exits immediately. Delete the lockfile only if no instance is actually running.
