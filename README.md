@@ -50,15 +50,15 @@ cargo run --bin thalamic-relay
 
 The relay runs in software-only mode and steps the in-process SNN. Telemetry (GPU/CPU) is collected when available.
 
-While running it exposes two interfaces:
+While running it exposes two interfaces (addresses configurable via CLI/env; see Configuration):
 
-- **UDP IPC** on `127.0.0.1:9898` (newline-free JSON messages):
+- **UDP (User Datagram Protocol) IPC** (defaults to 127.0.0.1:9898; newline-free JSON messages):
   - `{"type":"Stimuli","values":[/* up to 16 f32 */]}` — drive the network
   - `{"type":"LearningReward","dopamine_delta":<f32>,"cortisol_delta":<f32>}` —
     apply reward/stress modulation
   - `{"type":"GetNeuroState"}` — returns a JSON snapshot of the current
     neuromodulator levels and spike count
-- **Prometheus metrics** on `http://localhost:9000/metrics`
+- **Prometheus metrics** on `http://localhost:9000/metrics` (or your --metrics-addr)
 
 ## Architecture
 
@@ -91,11 +91,25 @@ While running it exposes two interfaces:
 
 ## Configuration
 
-The relay uses environment-based configuration. Key areas include:
+The relay supports CLI flags **and** environment variables (clap derive + "env" feature; added for #11). Defaults preserve prior hardcoded behavior.
 
-- GPU monitoring parameters
-- Metrics export endpoints
-- Logging levels and outputs
+Run `thalamic-relay --help` (or `-V`) for the full documented surface.
+
+Key options (with env var equivalent):
+
+- `--udp-addr` / `THALAMIC_UDP_ADDR` (default: 127.0.0.1:9898) — **UDP (User Datagram Protocol)** IPC bind
+- `--metrics-addr` / `THALAMIC_METRICS_ADDR` (default: 127.0.0.1:9000)
+- `--step-interval-ms` / `THALAMIC_STEP_INTERVAL_MS` (default: 100)
+- `--lockfile` / `THALAMIC_LOCKFILE` (default: /tmp/thalamic_relay.lock)
+- `--force-software-only` / `THALAMIC_FORCE_SOFTWARE_ONLY`
+- `--num-channels` / `THALAMIC_NUM_CHANNELS`, `--num-layers`, `--num-outputs` (SNN dims for `with_dimensions`)
+- `RUST_LOG` (standard for tracing; or --log-level in future extensions)
+
+Example with env + flag:
+```bash
+THALAMIC_UDP_ADDR=0.0.0.0:12345 THALAMIC_METRICS_ADDR=0.0.0.0:9091 \
+  cargo run --bin thalamic-relay -- --force-software-only --step-interval-ms 50
+```
 
 ## Monitoring
 

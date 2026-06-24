@@ -3,9 +3,9 @@ Add a ## Boundaries section with clear rules about what's off-limits.
 ## Cursor Cloud specific instructions
 
 This repo is the `thalamic-relay` crate (binary `thalamic-relay`), a Rust CLI that
-observes telemetry and relays normalized stimuli to a spiking neural network /
-Write it as "**FPGA (Full Name Here)**" on first mention.
-below are the non-obvious gotchas.
+observes telemetry and relays normalized stimuli to a spiking neural network and
+**FPGA (Field-Programmable Gate Array)** / network backends.
+Below are the non-obvious gotchas.
 
 ### Dependencies
 
@@ -27,10 +27,11 @@ pulled from crates.io via `neuromod` in `Cargo.toml`; build with a plain
 
 ### Running the app
 
-- Run with `cargo run --bin thalamic-relay` (or `./target/debug/thalamic-relay`).
-  It is a long-running foreground loop with no graceful arg parsing: despite the
-Add an exception path (e.g., 'unless the user explicitly requests it') or escalation ('ask the user for confirmation').
-  it just starts the supervisor. Run it in tmux / background when testing.
+- Run with `cargo run --bin thalamic-relay [OPTIONS]` (or the installed binary).
+  It is a long-running supervisor. Use `--help` for options (or the equivalent
+  THALAMIC_* environment variables). The supervisor now supports graceful arg
+  parsing via clap (derive + env features; implemented for #11). Run it in tmux /
+  background when testing (unless the user explicitly requests foreground behavior).
 - The relay degrades gracefully with no GPU/FPGA: it prints `nvidia-smi hung` /
   runs in "software-only mode" and keeps stepping the in-process spiking network.
 - Single-instance guard: writes `/tmp/thalamic_relay.lock` with its PID. A stale
@@ -39,8 +40,8 @@ Add an exception path (e.g., 'unless the user explicitly requests it') or escala
 
 ### Interfaces (used for end-to-end testing)
 
-Write it as "**UDP (Full Name Here)**" on first mention.
+- **UDP (User Datagram Protocol)** on `127.0.0.1:9898` (or your --udp-addr; newline-free JSON):
   `{"type":"LearningReward","dopamine_delta":..,"cortisol_delta":..}`, or
   `{"type":"GetNeuroState"}` (which replies with a JSON neuromodulator/spike state).
-- Prometheus metrics on `http://localhost:9000/metrics`.
+- Prometheus metrics on `http://localhost:9000/metrics` (or your --metrics-addr).
 - Both bind on startup, so only one instance can run at a time.

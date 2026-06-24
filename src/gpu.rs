@@ -70,12 +70,21 @@ impl HardwareBridge {
     /// Falls back to simulated values if sysfs paths aren't available
     /// (e.g., running without NVIDIA drivers or on a dev machine).
     pub fn read_telemetry() -> GpuTelemetry {
-        // Try reading real data from nvidia-smi first
-        if let Some(telem) = Self::read_nvidia_smi() {
-            return telem;
+        Self::read_telemetry_force(false)
+    }
+
+    /// Read telemetry, but if `force_software` is true, always use the simulated
+    /// fallback (never attempt real NVML/nvidia-smi). This implements the
+    /// --force-software-only CLI flag for #11.
+    pub fn read_telemetry_force(force_software: bool) -> GpuTelemetry {
+        if !force_software {
+            // Try reading real data from nvidia-smi first (unless forced software-only)
+            if let Some(telem) = Self::read_nvidia_smi() {
+                return telem;
+            }
         }
 
-        // Fallback: simulated "healthy idle" values
+        // Fallback / forced-sim: simulated "healthy idle" values
         // These use the same correlation model as the real sensors
         let power_w = 25.0;
         GpuTelemetry {

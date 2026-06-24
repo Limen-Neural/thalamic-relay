@@ -1,3 +1,4 @@
+use clap::Parser;
 use neuromod::{NeuroModulators, SpikingNetwork};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
@@ -8,31 +9,35 @@ use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    cpu::init_telemetry();
+    let cli = Cli::parse();
 
     // Create shared metrics state
+    // init_telemetry now accepts the (possibly custom) metrics addr
+    cpu::init_telemetry(Some(&cli.metrics_addr));
+
     let relay_metrics = Arc::new(Mutex::new(RelayMetrics::default()));
     let metrics_clone = Arc::clone(&relay_metrics);
     tokio::spawn(async move {
         cpu::run_metrics_collector(metrics_clone).await;
     });
 
-    struct LockGuard(&'static str);
+    struct LockGuard(String);
     impl Drop for LockGuard {
         fn drop(&mut self) {
-            let _ = std::fs::remove_file(self.0);
+            let _ = std::fs::remove_file(&self.0);
         }
     }
 
     // Acquire the single-instance lock atomically. `create_new` fails if the
     // file already exists, which closes the check-then-write race where two
     // concurrent starts could both pass a plain existence check.
-    let lock_path = "/tmp/thalamic_relay.lock";
+    // (Lock logic is 100% unchanged except the path now comes from CLI/env.)
+    let lock_path = cli.lockfile;
     loop {
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(lock_path)
+            .open(&lock_path)
         {
             Ok(mut file) => {
                 writeln!(file, "{}", std::process::id())?;
@@ -43,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // the recorded PID is dead. Any ambiguity (unreadable or
                 // unparseable lock file) fails closed to preserve the
                 // single-instance guarantee.
-                let Some(recorded_pid) = std::fs::read_to_string(lock_path)
+                let Some(recorded_pid) = std::fs::read_to_string(&lock_path)
                     .ok()
                     .and_then(|content| content.trim().parse::<u32>().ok())
                 else {
@@ -62,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Stale lock from a dead PID: remove it and retry. If removal
                 // fails, abort instead of spinning in a tight retry loop.
-                if let Err(remove_err) = std::fs::remove_file(lock_path) {
+                if let Err(remove_err) = std::fs::remove_file(&lock_path) {
                     eprintln!(
                         "[relay] FATAL: Failed to clear stale lock {lock_path}: {remove_err}"
                     );
@@ -72,12 +77,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(err) => return Err(err.into()),
         }
     }
-    let _lock_guard = LockGuard(lock_path);
+    let _lock_guard = LockGuard(lock_path); // move the (now configurable) String path
 
     println!("[relay] --- Thalamic Relay ---");
-    println!("[relay] running in software-only mode (no FPGA/silicon-bridge)");
+    if cli.force_software_only {
+        println!("[relay] running in software-only mode (forced via --force-software-only)");
+    } else {
+        println!("[relay] running in software-only mode (no FPGA/silicon-bridge)");
+    }
 
-    let mut network = SpikingNetwork::with_dimensions(16, 5, 16);
+    let mut network =
+        SpikingNetwork::with_dimensions(cli.num_channels, cli.num_layers, cli.num_outputs);
     let mut modulators = NeuroModulators::default();
     let mut stimuli = vec![0.0_f32; network.num_channels];
     let mut latest_spike_count: usize = 0;
@@ -85,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stimuli_applied_count: u64 = 0;
 
     let udp_socket =
-        std::net::UdpSocket::bind("127.0.0.1:9898").expect("FATAL: Failed to bind IPC socket");
+        std::net::UdpSocket::bind(&cli.udp_addr).expect("FATAL: Failed to bind IPC socket");
     udp_socket
         .set_nonblocking(true)
         .expect("FATAL: Failed to set non-blocking UDP");
@@ -93,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         step_count += 1;
         let loop_start = Instant::now();
-        let telemetry = HardwareBridge::read_telemetry();
+        let telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
 
         let stimuli_applied = process_udp_messages(
             &udp_socket,
@@ -127,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         print_dashboard(&telemetry, latest_spike_count, step_count);
 
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(cli.step_interval_ms)).await;
     }
 }
 
@@ -186,4 +196,78 @@ fn print_dashboard(telemetry: &GpuTelemetry, lif_spike_count: usize, step: u64) 
         telemetry.power_w, telemetry.vddcr_gfx_v, lif_spike_count
     );
     let _ = io::stdout().flush();
+}
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "thalamic-relay",
+    version,
+    about = "Thalamic Relay - observes telemetry and steps an in-process SNN (software-only)"
+)]
+struct Cli {
+    /// UDP bind address:port for IPC (Stimuli / LearningReward / GetNeuroState)
+    #[arg(long, default_value = "127.0.0.1:9898", env = "THALAMIC_UDP_ADDR")]
+    udp_addr: String,
+
+    /// Prometheus metrics listen address:port
+    #[arg(long, default_value = "127.0.0.1:9000", env = "THALAMIC_METRICS_ADDR")]
+    metrics_addr: String,
+
+    /// SNN step interval (ms)
+    #[arg(long, default_value_t = 100, env = "THALAMIC_STEP_INTERVAL_MS")]
+    step_interval_ms: u64,
+
+    /// Single-instance lockfile path
+    #[arg(
+        long,
+        default_value = "/tmp/thalamic_relay.lock",
+        env = "THALAMIC_LOCKFILE"
+    )]
+    lockfile: String,
+
+    /// Force software-only mode (skip real GPU telemetry attempts, use sim)
+    #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY")]
+    force_software_only: bool,
+
+    /// SNN input channels (stimuli vector size)
+    #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_CHANNELS")]
+    num_channels: usize,
+
+    /// SNN layers/hidden param for with_dimensions
+    #[arg(long, default_value_t = 5, env = "THALAMIC_NUM_LAYERS")]
+    num_layers: usize,
+
+    /// SNN outputs for with_dimensions
+    #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_OUTPUTS")]
+    num_outputs: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn parses_custom_args_and_env_equiv() {
+        // direct args
+        let cli = Cli::try_parse_from([
+            "thalamic-relay",
+            "--udp-addr",
+            "127.0.0.1:12345",
+            "--metrics-addr",
+            "127.0.0.1:9091",
+            "--step-interval-ms",
+            "50",
+            "--force-software-only",
+            "--num-channels",
+            "8",
+        ])
+        .unwrap();
+        assert_eq!(cli.udp_addr, "127.0.0.1:12345");
+        assert_eq!(cli.metrics_addr, "127.0.0.1:9091");
+        assert_eq!(cli.step_interval_ms, 50);
+        assert!(cli.force_software_only);
+        assert_eq!(cli.num_channels, 8);
+        assert_eq!(cli.num_layers, 5); // default
+    }
 }
