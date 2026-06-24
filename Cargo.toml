@@ -29,7 +29,7 @@ rayon = "1.7.0"
 
 # Core Backend Crates
 silicon-bridge = { path = "../silicon-bridge", features = ["uart"] }
-plasticity-lab = { package = "plascticity-lab", path = "../plasticity-lab" }
+plasticity-lab = { path = "../plasticity-lab" }
 metabolic-ledger = { path = "../metabolic-ledger" }
 limbic-critic = { path = "../limbic-critic", optional = true }
 

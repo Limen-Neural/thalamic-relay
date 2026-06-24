@@ -712,7 +712,7 @@ dependencies = [
 name = "limbic-critic"
 version = "0.2.0"
 dependencies = [
- "neuromod 0.3.0",
+ "neuromod 0.3.0 (git+https://github.com/Limen-Neural/neuromod)",
  "serde",
 ]
 
@@ -811,6 +811,16 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "neuromod"
+version = "0.3.0"
+source = "git+https://github.com/Limen-Neural/neuromod?rev=58f622d0da1af49d515e3f4c778524e063099296#58f622d0da1af49d515e3f4c778524e063099296"
+dependencies = [
+ "rand 0.9.4",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -952,10 +962,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
-name = "plascticity-lab"
+name = "plasticity-lab"
 version = "0.1.0"
 dependencies = [
- "neuromod 0.3.0",
+ "neuromod 0.3.0 (git+https://github.com/Limen-Neural/neuromod?rev=58f622d0da1af49d515e3f4c778524e063099296)",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -1427,7 +1437,7 @@ dependencies = [
  "neuromod 0.4.0",
  "nix 0.29.0",
  "nvml-wrapper",
- "plascticity-lab",
+ "plasticity-lab",
  "rand 0.8.5",
  "rayon",
  "regex",

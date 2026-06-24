@@ -14,8 +14,10 @@ of the repo (i.e. at `/silicon-bridge`, `/plasticity-lab`, `/metabolic-ledger`,
 from the `Limen-Neural` GitHub org. The startup update script recreates any that
 are missing, so normally you do not need to touch them. If a build fails with
 "failed to load source for dependency", confirm those four directories exist.
-Note the `plasticity-lab` repo's package name is intentionally misspelled
-`plascticity-lab` — that is expected, not a typo to fix.
+The startup update script clones the sibling crates from their default branch,
+so keep this crate's dependency names in sync with upstream (for example, the
+`plasticity-lab` package was once named `plascticity-lab` and has since been
+renamed upstream).
 
 The checkout location (`/workspace`) is fixed by the Cloud environment, and the
 `../` paths in `Cargo.toml` force the siblings to live in `/`, which is NOT
