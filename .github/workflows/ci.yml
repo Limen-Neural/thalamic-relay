@@ -15,24 +15,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # The serial backend (serialport -> libudev-sys) needs the libudev
-      # development headers and pkg-config to build.
+      # pkg-config is used by some native dependencies (if any).
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libudev-dev
-
-      # thalamic-relay depends on sibling crates via `../` path dependencies in
-      # Cargo.toml, so they must be checked out next to this repo before any
-      # cargo command (cargo metadata/fmt/clippy/build all need their manifests).
-      - name: Fetch workspace path dependencies
-        working-directory: ..
-        run: |
-          for repo in silicon-bridge plasticity-lab metabolic-ledger limbic-critic; do
-            if [ ! -d "$repo" ]; then
-              git clone --depth 1 "https://github.com/Limen-Neural/$repo" "$repo"
-            fi
-          done
+          sudo apt-get install -y pkg-config
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable

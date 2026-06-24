@@ -1,15 +1,21 @@
 use neuromod::{NeuroModulators, SpikingNetwork};
 use std::io::{self, Write};
-use std::time::Duration;
-use thalamic_relay::cpu;
-use thalamic_relay::fpga::FpgaBridge;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use thalamic_relay::cpu::{self, RelayMetrics};
 use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge};
 use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     cpu::init_telemetry();
-    tokio::spawn(cpu::run_metrics_collector());
+
+    // Create shared metrics state
+    let relay_metrics = Arc::new(Mutex::new(RelayMetrics::default()));
+    let metrics_clone = Arc::clone(&relay_metrics);
+    tokio::spawn(async move {
+        cpu::run_metrics_collector(metrics_clone).await;
+    });
 
     struct LockGuard(&'static str);
     impl Drop for LockGuard {
@@ -69,19 +75,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _lock_guard = LockGuard(lock_path);
 
     println!("[relay] --- Thalamic Relay ---");
-
-    let mut bridge = FpgaBridge::new("/dev/ttyUSB0").ok();
-    if bridge.is_some() {
-        println!("[relay] FPGA connected via silicon-bridge");
-    } else {
-        println!("[relay] FPGA not detected, running in software-only mode");
-    }
+    println!("[relay] running in software-only mode (no FPGA/silicon-bridge)");
 
     let mut network = SpikingNetwork::with_dimensions(16, 5, 16);
     let mut modulators = NeuroModulators::default();
     let mut stimuli = vec![0.0_f32; network.num_channels];
     let mut latest_spike_count: usize = 0;
     let mut step_count: u64 = 0;
+    let mut stimuli_applied_count: u64 = 0;
 
     let udp_socket =
         std::net::UdpSocket::bind("127.0.0.1:9898").expect("FATAL: Failed to bind IPC socket");
@@ -91,39 +92,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         step_count += 1;
+        let loop_start = Instant::now();
         let telemetry = HardwareBridge::read_telemetry();
-        process_udp_messages(
+
+        let stimuli_applied = process_udp_messages(
             &udp_socket,
             &mut stimuli,
             &mut modulators,
-            &network,
             latest_spike_count,
         );
 
+        if stimuli_applied {
+            stimuli_applied_count += 1;
+        }
+
+        let step_start = Instant::now();
         if let Ok(spikes) = network.step(&stimuli, &modulators) {
             latest_spike_count = spikes.len();
         }
+        let step_latency_ms = step_start.elapsed().as_secs_f64() * 1000.0;
         modulators.decay();
 
-        if let Some(ref mut fpga) = bridge {
-            match fpga.step_cluster(&stimuli) {
-                Ok((potentials, spike_word)) => {
-                    print_dashboard(
-                        &telemetry,
-                        &potentials,
-                        spike_word,
-                        latest_spike_count,
-                        step_count,
-                    );
-                }
-                Err(err) => {
-                    eprintln!("\n[relay] FPGA sync lost: {err}");
-                    bridge = None;
-                }
-            }
-        } else {
-            print_dashboard(&telemetry, &[], 0, latest_spike_count, step_count);
+        // Update shared metrics
+        {
+            let mut metrics = relay_metrics.lock().unwrap();
+            metrics.spike_count = latest_spike_count;
+            metrics.stimulus_latency_ms = step_latency_ms;
+            metrics.telemetry_freshness_s = loop_start.elapsed().as_secs_f64();
+            metrics.dopamine = modulators.dopamine;
+            metrics.cortisol = modulators.cortisol;
+            metrics.acetylcholine = modulators.acetylcholine;
+            metrics.stimuli_applied_count = stimuli_applied_count;
         }
+
+        print_dashboard(&telemetry, latest_spike_count, step_count);
 
         sleep(Duration::from_millis(100)).await;
     }
@@ -133,9 +135,9 @@ fn process_udp_messages(
     socket: &std::net::UdpSocket,
     stimuli: &mut [f32],
     modulators: &mut NeuroModulators,
-    network: &SpikingNetwork,
     latest_spike_count: usize,
-) {
+) -> bool {
+    let mut stimuli_applied = false;
     let mut buf = [0u8; 4096];
     while let Ok((amt, src)) = socket.recv_from(&mut buf) {
         let Ok(msg) = std::str::from_utf8(&buf[..amt]) else {
@@ -152,6 +154,7 @@ fn process_udp_messages(
                         let v = value.as_f64().unwrap_or(0.0) as f32;
                         stimuli[idx] = v.clamp(-1.0, 1.0);
                     }
+                    stimuli_applied = true;
                 }
             }
             Some("LearningReward") => {
@@ -162,9 +165,9 @@ fn process_udp_messages(
             }
             Some("GetNeuroState") => {
                 let state_json = serde_json::json!({
-                    "dopamine": network.modulators.dopamine,
-                    "cortisol": network.modulators.cortisol,
-                    "acetylcholine": network.modulators.acetylcholine,
+                    "dopamine": modulators.dopamine,
+                    "cortisol": modulators.cortisol,
+                    "acetylcholine": modulators.acetylcholine,
                     "lif_spike_count": latest_spike_count
                 });
                 if let Ok(encoded) = serde_json::to_string(&state_json) {
@@ -174,19 +177,13 @@ fn process_udp_messages(
             _ => {}
         }
     }
+    stimuli_applied
 }
 
-fn print_dashboard(
-    telemetry: &GpuTelemetry,
-    potentials: &[f32],
-    spikes: u16,
-    lif_spike_count: usize,
-    step: u64,
-) {
-    let pot0 = potentials.first().copied().unwrap_or(0.0);
+fn print_dashboard(telemetry: &GpuTelemetry, lif_spike_count: usize, step: u64) {
     print!(
-        "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | FPGA Spikes: {:04X} | SW Spikes: {:2} | Pot0: {:>6.3}   ",
-        telemetry.power_w, telemetry.vddcr_gfx_v, spikes, lif_spike_count, pot0
+        "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | SW Spikes: {:2}   ",
+        telemetry.power_w, telemetry.vddcr_gfx_v, lif_spike_count
     );
     let _ = io::stdout().flush();
 }
