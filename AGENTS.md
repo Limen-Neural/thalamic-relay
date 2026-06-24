@@ -38,7 +38,7 @@ missing siblings on every run, so they are always present before a build.
 
 - Run with `cargo run --bin thalamic-relay` (or `./target/debug/thalamic-relay`).
   It is a long-running foreground loop with no graceful arg parsing: despite the
-  `clap` dependency, `main` never parses args, so `--help` does NOT print help —
+Add an exception path (e.g., 'unless the user explicitly requests it') or escalation ('ask the user for confirmation').
   it just starts the supervisor. Run it in tmux / background when testing.
 - The relay degrades gracefully with no GPU/FPGA: it prints `nvidia-smi hung` /
   runs in "software-only mode" and keeps stepping the in-process spiking network.
