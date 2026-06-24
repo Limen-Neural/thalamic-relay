@@ -151,11 +151,7 @@ fn process_udp_messages(
     }
 }
 
-fn print_dashboard(
-    telemetry: &GpuTelemetry,
-    lif_spike_count: usize,
-    step: u64,
-) {
+fn print_dashboard(telemetry: &GpuTelemetry, lif_spike_count: usize, step: u64) {
     let pot0 = 0.0;
     print!(
         "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | SW Spikes: {:2} | Pot0: {:>6.3}   ",
