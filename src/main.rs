@@ -183,10 +183,9 @@ fn process_udp_messages(
 }
 
 fn print_dashboard(telemetry: &GpuTelemetry, lif_spike_count: usize, step: u64) {
-    let pot0 = 0.0;
     print!(
-        "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | SW Spikes: {:2} | Pot0: {:>6.3}   ",
-        telemetry.power_w, telemetry.vddcr_gfx_v, lif_spike_count, pot0
+        "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | SW Spikes: {:2}   ",
+        telemetry.power_w, telemetry.vddcr_gfx_v, lif_spike_count
     );
     let _ = io::stdout().flush();
 }
