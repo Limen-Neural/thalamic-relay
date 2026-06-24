@@ -119,9 +119,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             metrics.spike_count = latest_spike_count;
             metrics.stimulus_latency_ms = step_latency_ms;
             metrics.telemetry_freshness_s = loop_start.elapsed().as_secs_f64();
-            metrics.dopamine = network.modulators.dopamine;
-            metrics.cortisol = network.modulators.cortisol;
-            metrics.acetylcholine = network.modulators.acetylcholine;
+            metrics.dopamine = modulators.dopamine;
+            metrics.cortisol = modulators.cortisol;
+            metrics.acetylcholine = modulators.acetylcholine;
             metrics.stimuli_applied_count = stimuli_applied_count;
         }
 

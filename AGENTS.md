@@ -31,8 +31,9 @@ Add an exception path (e.g., 'unless the user explicitly requests it') or escala
 - Requires Rust edition 2024 (toolchain >= 1.85; stable is set as the rustup
   default in this environment). `cargo`/`cargo build`/`cargo test`/`cargo clippy`
   all work from `/workspace`.
-- Native libs `pkg-config` and `libudev-dev` are required (pulled in transitively
-  by `serialport` / `nvml-wrapper`). They are preinstalled in this environment.
+- `pkg-config` may be used by native dependencies. `libudev-dev` is no longer
+  required: the serial backend (`serialport`, via `silicon-bridge`) was removed,
+  and `nvml-wrapper` loads `libnvidia-ml.so` at runtime without linking libudev.
 
 ### Running the app
 
