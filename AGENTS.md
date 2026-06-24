@@ -48,7 +48,7 @@ Add an exception path (e.g., 'unless the user explicitly requests it') or escala
 
 ### Interfaces (used for end-to-end testing)
 
-- UDP IPC on `127.0.0.1:9898`: send JSON `{"type":"Stimuli","values":[...16 f32]}`,
+Write it as "**UDP (Full Name Here)**" on first mention.
   `{"type":"LearningReward","dopamine_delta":..,"cortisol_delta":..}`, or
   `{"type":"GetNeuroState"}` (which replies with a JSON neuromodulator/spike state).
 - Prometheus metrics on `http://localhost:9000/metrics`.
