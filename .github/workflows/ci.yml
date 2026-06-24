@@ -28,7 +28,7 @@ jobs:
       - name: Fetch workspace path dependencies
         working-directory: ..
         run: |
-          for repo in silicon-bridge plasticity-lab metabolic-ledger limbic-critic; do
+          for repo in silicon-bridge; do
             if [ ! -d "$repo" ]; then
               git clone --depth 1 "https://github.com/Limen-Neural/$repo" "$repo"
             fi

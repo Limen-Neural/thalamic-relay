@@ -1,5 +1,7 @@
 # Thalamic Relay
 
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
+
 A lightweight CLI relay that observes hardware telemetry and forwards normalized
 stimuli to a spiking neural network and FPGA/network backends.
 
@@ -97,9 +99,6 @@ While running it exposes two interfaces:
 ### Workspace Backends (local path dependencies)
 
 - `silicon-bridge`: FPGA deployment and UART spike readback
-- `plasticity-lab`: Offline/closed-loop training utilities
-- `metabolic-ledger`: Resource accounting
-- `limbic-critic` (optional): Reward-based scheduling helpers
 
 ## Configuration
 
@@ -129,8 +128,12 @@ Structured logging via `tracing` with configurable output levels.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. See the
-[LICENSE](LICENSE) file for details.
+This project is licensed under either of
+
+- Apache License, Version 2.0, ([LICENSE-APACHE-2.0](LICENSE-APACHE-2.0) or [http://www.apache.org/licenses/LICENSE-2.0])
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or [http://opensource.org/licenses/MIT])
+
+at your option.
 
 ## Contributing
 
