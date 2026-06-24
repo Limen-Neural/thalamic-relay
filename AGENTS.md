@@ -8,6 +8,7 @@ FPGA backend. Standard commands live in `README.md` and `Cargo.toml`; the notes
 below are the non-obvious gotchas.
 
 ### Sibling path dependencies (most important)
+
 `Cargo.toml` uses `../` path dependencies, so these crates MUST exist as siblings
 of the repo (i.e. at `/silicon-bridge`, `/plasticity-lab`, `/metabolic-ledger`,
 `/limbic-critic`, since the repo is checked out at `/workspace`). They are cloned
@@ -26,6 +27,7 @@ expected and harmless here: the idempotent startup update script re-clones any
 missing siblings on every run, so they are always present before a build.
 
 ### Toolchain / system deps
+
 - Requires Rust edition 2024 (toolchain >= 1.85; stable is set as the rustup
   default in this environment). `cargo`/`cargo build`/`cargo test`/`cargo clippy`
   all work from `/workspace`.
@@ -33,6 +35,7 @@ missing siblings on every run, so they are always present before a build.
   by `serialport` / `nvml-wrapper`). They are preinstalled in this environment.
 
 ### Running the app
+
 - Run with `cargo run --bin thalamic-relay` (or `./target/debug/thalamic-relay`).
   It is a long-running foreground loop with no graceful arg parsing: despite the
   `clap` dependency, `main` never parses args, so `--help` does NOT print help —
@@ -44,6 +47,7 @@ missing siblings on every run, so they are always present before a build.
   exits immediately. Delete the lockfile only if no instance is actually running.
 
 ### Interfaces (used for end-to-end testing)
+
 - UDP IPC on `127.0.0.1:9898`: send JSON `{"type":"Stimuli","values":[...16 f32]}`,
   `{"type":"LearningReward","dopamine_delta":..,"cortisol_delta":..}`, or
   `{"type":"GetNeuroState"}` (which replies with a JSON neuromodulator/spike state).

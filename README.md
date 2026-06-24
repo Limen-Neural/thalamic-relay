@@ -81,6 +81,7 @@ While running it exposes two interfaces:
 ## Dependencies
 
 ### Core Dependencies
+
 - `tokio`: Async runtime with full features
 - `serde` / `serde_json`: Serialization framework
 - `tracing` / `tracing-subscriber`: Structured logging and telemetry
@@ -89,10 +90,12 @@ While running it exposes two interfaces:
 - `neuromod`: Spiking neural network engine
 
 ### Hardware Interfaces
+
 - `nvml-wrapper`: GPU monitoring via NVIDIA Management Library
 - `nix`: System interfaces for signal handling
 
 ### Workspace Backends (local path dependencies)
+
 - `silicon-bridge`: FPGA deployment and UART spike readback
 - `plasticity-lab`: Offline/closed-loop training utilities
 - `metabolic-ledger`: Resource accounting
