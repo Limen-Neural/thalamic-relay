@@ -1,4 +1,4 @@
-# AGENTS.md
+Create SOUL.md or add a ## Identity section defining who the agent is, its tone, and behavior principles.
 
 ## Cursor Cloud specific instructions
 
