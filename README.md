@@ -83,13 +83,11 @@ While running it exposes two interfaces:
 - `serde` / `serde_json`: Serialization framework
 - `tracing` / `tracing-subscriber`: Structured logging and telemetry
 - `metrics` / `metrics-exporter-prometheus`: Metrics collection with Prometheus export
-- `anyhow`: Error handling
 - `neuromod`: Spiking neural network engine
 
 ### Hardware Interfaces
 
 - `nvml-wrapper`: GPU monitoring via NVIDIA Management Library
-- `nix`: System interfaces for signal handling
 
 ## Configuration
 
