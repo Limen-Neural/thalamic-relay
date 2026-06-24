@@ -1,14 +1,21 @@
 use neuromod::{NeuroModulators, SpikingNetwork};
 use std::io::{self, Write};
-use std::time::Duration;
-use thalamic_relay::cpu;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use thalamic_relay::cpu::{self, RelayMetrics};
 use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge};
 use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     cpu::init_telemetry();
-    tokio::spawn(cpu::run_metrics_collector());
+
+    // Create shared metrics state
+    let relay_metrics = Arc::new(Mutex::new(RelayMetrics::default()));
+    let metrics_clone = Arc::clone(&relay_metrics);
+    tokio::spawn(async move {
+        cpu::run_metrics_collector(metrics_clone).await;
+    });
 
     struct LockGuard(&'static str);
     impl Drop for LockGuard {
@@ -75,6 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stimuli = vec![0.0_f32; network.num_channels];
     let mut latest_spike_count: usize = 0;
     let mut step_count: u64 = 0;
+    let mut stimuli_applied_count: u64 = 0;
 
     let udp_socket =
         std::net::UdpSocket::bind("127.0.0.1:9898").expect("FATAL: Failed to bind IPC socket");
@@ -84,8 +92,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         step_count += 1;
+        let loop_start = Instant::now();
         let telemetry = HardwareBridge::read_telemetry();
-        process_udp_messages(
+
+        let stimuli_applied = process_udp_messages(
             &udp_socket,
             &mut stimuli,
             &mut modulators,
@@ -93,10 +103,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             latest_spike_count,
         );
 
+        if stimuli_applied {
+            stimuli_applied_count += 1;
+        }
+
+        let step_start = Instant::now();
         if let Ok(spikes) = network.step(&stimuli, &modulators) {
             latest_spike_count = spikes.len();
         }
+        let step_latency_ms = step_start.elapsed().as_secs_f64() * 1000.0;
         modulators.decay();
+
+        // Update shared metrics
+        {
+            let mut metrics = relay_metrics.lock().unwrap();
+            metrics.spike_count = latest_spike_count;
+            metrics.stimulus_latency_ms = step_latency_ms;
+            metrics.telemetry_freshness_s = loop_start.elapsed().as_secs_f64();
+            metrics.dopamine = network.modulators.dopamine;
+            metrics.cortisol = network.modulators.cortisol;
+            metrics.acetylcholine = network.modulators.acetylcholine;
+            metrics.stimuli_applied_count = stimuli_applied_count;
+        }
 
         print_dashboard(&telemetry, latest_spike_count, step_count);
 
@@ -110,7 +138,8 @@ fn process_udp_messages(
     modulators: &mut NeuroModulators,
     network: &SpikingNetwork,
     latest_spike_count: usize,
-) {
+) -> bool {
+    let mut stimuli_applied = false;
     let mut buf = [0u8; 4096];
     while let Ok((amt, src)) = socket.recv_from(&mut buf) {
         let Ok(msg) = std::str::from_utf8(&buf[..amt]) else {
@@ -127,6 +156,7 @@ fn process_udp_messages(
                         let v = value.as_f64().unwrap_or(0.0) as f32;
                         stimuli[idx] = v.clamp(-1.0, 1.0);
                     }
+                    stimuli_applied = true;
                 }
             }
             Some("LearningReward") => {
@@ -149,6 +179,7 @@ fn process_udp_messages(
             _ => {}
         }
     }
+    stimuli_applied
 }
 
 fn print_dashboard(telemetry: &GpuTelemetry, lif_spike_count: usize, step: u64) {
