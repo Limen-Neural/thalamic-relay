@@ -3,7 +3,7 @@ use metrics_exporter_prometheus::PrometheusBuilder;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{Level, info, warn};
+use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
 /// Shared telemetry state populated by the main loop and UDP handlers
