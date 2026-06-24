@@ -104,10 +104,19 @@ impl HardwareBridge {
     }
 
     fn read_nvidia_smi() -> Option<GpuTelemetry> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        // Only log on the healthy -> unhealthy transition; the telemetry loop
+        // calls this ~10x/sec, so an unconditional print would flood stdout
+        // while the driver stays wedged.
+        static WAS_UNHEALTHY: AtomicBool = AtomicBool::new(false);
+
         if !Self::is_gpu_healthy() {
-            println!("[hardware_bridge] nvidia-smi hung. Bypassing NVML this tick.");
+            if !WAS_UNHEALTHY.swap(true, Ordering::Relaxed) {
+                println!("[hardware_bridge] nvidia-smi hung. Bypassing NVML until it recovers.");
+            }
             return None;
         }
+        WAS_UNHEALTHY.store(false, Ordering::Relaxed);
 
         let nvml = NVML.as_ref()?;
         let device = nvml.device_by_index(0).ok()?;

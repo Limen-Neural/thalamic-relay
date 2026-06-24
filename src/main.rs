@@ -33,21 +33,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
-                // A lock exists: refuse to start if its PID is still alive,
-                // otherwise treat it as stale, reclaim it, and retry.
-                let active_pid = std::fs::read_to_string(lock_path)
+                // A lock exists. Reclaim it ONLY when we can positively confirm
+                // the recorded PID is dead. Any ambiguity (unreadable or
+                // unparseable lock file) fails closed to preserve the
+                // single-instance guarantee.
+                let Some(recorded_pid) = std::fs::read_to_string(lock_path)
                     .ok()
                     .and_then(|content| content.trim().parse::<u32>().ok())
-                    .filter(|pid| std::path::Path::new(&format!("/proc/{pid}")).exists());
-
-                if let Some(old_pid) = active_pid {
+                else {
                     eprintln!(
-                        "[relay] FATAL: Another instance is already active (PID: {old_pid})."
+                        "[relay] FATAL: Lock file {lock_path} exists but is unreadable/unparseable; refusing to start."
+                    );
+                    std::process::exit(1);
+                };
+
+                if std::path::Path::new(&format!("/proc/{recorded_pid}")).exists() {
+                    eprintln!(
+                        "[relay] FATAL: Another instance is already active (PID: {recorded_pid})."
                     );
                     std::process::exit(1);
                 }
 
-                let _ = std::fs::remove_file(lock_path);
+                // Stale lock from a dead PID: remove it and retry. If removal
+                // fails, abort instead of spinning in a tight retry loop.
+                if let Err(remove_err) = std::fs::remove_file(lock_path) {
+                    eprintln!(
+                        "[relay] FATAL: Failed to clear stale lock {lock_path}: {remove_err}"
+                    );
+                    std::process::exit(1);
+                }
             }
             Err(err) => return Err(err.into()),
         }
