@@ -17,6 +17,12 @@ are missing, so normally you do not need to touch them. If a build fails with
 Note the `plasticity-lab` repo's package name is intentionally misspelled
 `plascticity-lab` — that is expected, not a typo to fix.
 
+The checkout location (`/workspace`) is fixed by the Cloud environment, and the
+`../` paths in `Cargo.toml` force the siblings to live in `/`, which is NOT
+persisted across VM rebuilds (only `/workspace` is). That non-persistence is
+expected and harmless here: the idempotent startup update script re-clones any
+missing siblings on every run, so they are always present before a build.
+
 ### Toolchain / system deps
 - Requires Rust edition 2024 (toolchain >= 1.85; stable is set as the rustup
   default in this environment). `cargo`/`cargo build`/`cargo test`/`cargo clippy`
