@@ -2,7 +2,6 @@ use neuromod::{NeuroModulators, SpikingNetwork};
 use std::io::{self, Write};
 use std::time::Duration;
 use thalamic_relay::cpu;
-use thalamic_relay::fpga::FpgaBridge;
 use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge};
 use tokio::time::sleep;
 
@@ -69,13 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _lock_guard = LockGuard(lock_path);
 
     println!("[relay] --- Thalamic Relay ---");
-
-    let mut bridge = FpgaBridge::new("/dev/ttyUSB0").ok();
-    if bridge.is_some() {
-        println!("[relay] FPGA connected via silicon-bridge");
-    } else {
-        println!("[relay] FPGA not detected, running in software-only mode");
-    }
+    println!("[relay] running in software-only mode (no FPGA/silicon-bridge)");
 
     let mut network = SpikingNetwork::with_dimensions(16, 5, 16);
     let mut modulators = NeuroModulators::default();
@@ -105,25 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         modulators.decay();
 
-        if let Some(ref mut fpga) = bridge {
-            match fpga.step_cluster(&stimuli) {
-                Ok((potentials, spike_word)) => {
-                    print_dashboard(
-                        &telemetry,
-                        &potentials,
-                        spike_word,
-                        latest_spike_count,
-                        step_count,
-                    );
-                }
-                Err(err) => {
-                    eprintln!("\n[relay] FPGA sync lost: {err}");
-                    bridge = None;
-                }
-            }
-        } else {
-            print_dashboard(&telemetry, &[], 0, latest_spike_count, step_count);
-        }
+        print_dashboard(&telemetry, latest_spike_count, step_count);
 
         sleep(Duration::from_millis(100)).await;
     }
@@ -178,15 +153,13 @@ fn process_udp_messages(
 
 fn print_dashboard(
     telemetry: &GpuTelemetry,
-    potentials: &[f32],
-    spikes: u16,
     lif_spike_count: usize,
     step: u64,
 ) {
-    let pot0 = potentials.first().copied().unwrap_or(0.0);
+    let pot0 = 0.0;
     print!(
-        "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | FPGA Spikes: {:04X} | SW Spikes: {:2} | Pot0: {:>6.3}   ",
-        telemetry.power_w, telemetry.vddcr_gfx_v, spikes, lif_spike_count, pot0
+        "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | SW Spikes: {:2} | Pot0: {:>6.3}   ",
+        telemetry.power_w, telemetry.vddcr_gfx_v, lif_spike_count, pot0
     );
     let _ = io::stdout().flush();
 }

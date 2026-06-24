@@ -3,7 +3,7 @@
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
 
 A lightweight CLI relay that observes hardware telemetry and forwards normalized
-stimuli to a spiking neural network and FPGA/network backends.
+stimuli to a spiking neural network (software-only; silicon-bridge/FPGA bridge dep removed for modularity).
 
 ## Overview
 
@@ -18,8 +18,7 @@ gracefully to a software-only mode when no GPU or FPGA is present.
 
 - **GPU Telemetry**: Real-time monitoring of GPU sensors via NVML (temperature,
   power, clocks, fan, utilization) with a software fallback
-- **FPGA Bridge**: Stimulus delivery and spike readback through the
-  `silicon-bridge` backend
+- **Software SNN stepping**: In-process spiking network with neuromodulation (no built-in FPGA bridge dep)
 - **Spiking Neural Networks**: In-process SNN stepping via the `neuromod` engine
 - **Control IPC**: UDP interface for streaming stimuli, applying reward signals,
   and querying neuromodulator/spike state
@@ -49,9 +48,7 @@ cargo run --bin thalamic-relay
 
 ## Usage
 
-The relay automatically attempts to connect to FPGA hardware via the
-`silicon-bridge` backend. If no device is found it logs that it is running in
-software-only mode and continues stepping the in-process SNN.
+The relay runs in software-only mode (FPGA/silicon-bridge backend support removed for modularity) and steps the in-process SNN. Telemetry (GPU/CPU) is still collected.
 
 While running it exposes two interfaces:
 
@@ -68,7 +65,7 @@ While running it exposes two interfaces:
 ### Core Modules
 
 - **`gpu`**: Hardware bridge for GPU telemetry collection
-- **`fpga`**: Thin adapter over the `silicon-bridge` FPGA backend
+- (fpga module removed; no silicon-bridge path dep)
 - **`cpu`**: Telemetry initialization and metrics collection
 - **`models`**: Shared data models for hardware components
 - **`trainer`**: Re-exports of offline/closed-loop training utilities
@@ -95,10 +92,6 @@ While running it exposes two interfaces:
 
 - `nvml-wrapper`: GPU monitoring via NVIDIA Management Library
 - `nix`: System interfaces for signal handling
-
-### Workspace Backends (local path dependencies)
-
-- `silicon-bridge`: FPGA deployment and UART spike readback
 
 ## Configuration
 
@@ -144,8 +137,7 @@ coding standards and include appropriate tests.
 
 ### Common Issues
 
-1. **FPGA Detection**: Ensure the FPGA device is connected and accessible to the
-   `silicon-bridge` backend
+1. **Telemetry**: GPU access requires NVML; runs without it in software mode.
 2. **GPU Access**: Verify NVML installation and proper permissions
 3. **Instance Conflicts**: Check for an existing relay process holding the lockfile
    at `/tmp/thalamic_relay.lock`

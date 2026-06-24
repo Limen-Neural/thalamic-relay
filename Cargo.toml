@@ -2,7 +2,7 @@
 name = "thalamic-relay"
 version = "0.1.0"
 edition = "2024"
-description = "Lightweight CLI relay that observes telemetry and forwards normalized stimuli to FPGA/network backends."
+description = "Lightweight CLI relay that observes telemetry and forwards normalized stimuli to SNN (software-only, no built-in FPGA bridge)."
 license = "MIT OR Apache-2.0"
 
 [dependencies]
@@ -23,8 +23,6 @@ lazy_static = "1.4"
 nvml-wrapper = "0.10"
 nix = { version = "0.29", features = ["signal", "process"] }
 rand = "0.8"
-
-silicon-bridge = { path = "../silicon-bridge", features = ["uart"] }
 
 [[bin]]
 name = "thalamic-relay"
