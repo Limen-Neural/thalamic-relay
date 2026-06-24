@@ -1,3 +1,4 @@
+use metrics::{counter, gauge};
 use neuromod::{NeuroModulators, SpikingNetwork};
 use std::io::{self, Write};
 use std::time::Duration;
@@ -98,6 +99,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         modulators.decay();
 
+        // Real runtime metrics (not RNG) for observability
+        gauge!("relay_spike_count").set(latest_spike_count as f64);
+        gauge!("modulator_dopamine").set(modulators.dopamine);
+        gauge!("modulator_cortisol").set(modulators.cortisol);
+        gauge!("modulator_acetylcholine").set(modulators.acetylcholine);
+
         print_dashboard(&telemetry, latest_spike_count, step_count);
 
         sleep(Duration::from_millis(100)).await;
@@ -122,6 +129,7 @@ fn process_udp_messages(
 
         match json["type"].as_str() {
             Some("Stimuli") => {
+                counter!("relay_stimuli_applied").increment(1);
                 if let Some(values) = json["values"].as_array() {
                     for (idx, value) in values.iter().take(stimuli.len()).enumerate() {
                         let v = value.as_f64().unwrap_or(0.0) as f32;
@@ -152,10 +160,9 @@ fn process_udp_messages(
 }
 
 fn print_dashboard(telemetry: &GpuTelemetry, lif_spike_count: usize, step: u64) {
-    let pot0 = 0.0;
     print!(
-        "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | SW Spikes: {:2} | Pot0: {:>6.3}   ",
-        telemetry.power_w, telemetry.vddcr_gfx_v, lif_spike_count, pot0
+        "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | SW Spikes: {:2}   ",
+        telemetry.power_w, telemetry.vddcr_gfx_v, lif_spike_count
     );
     let _ = io::stdout().flush();
 }

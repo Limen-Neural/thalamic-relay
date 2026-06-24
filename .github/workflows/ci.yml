@@ -15,8 +15,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # The serial backend (serialport -> libudev-sys) needs the libudev
-      # development headers and pkg-config to build.
+      # pkg-config is used by some native dependencies (if any).
       - name: Install system dependencies
         run: |
           sudo apt-get update
