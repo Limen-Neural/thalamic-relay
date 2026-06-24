@@ -12,8 +12,9 @@ below are the non-obvious gotchas.
 This crate no longer has any sibling `../` path dependencies. The former Core
 Backend Crates (`silicon-bridge`, `plasticity-lab`, `metabolic-ledger`,
 `limbic-critic`) were removed for modularity, so there is no need to clone
-sibling repos next to this one. The SNN engine is now pulled from crates.io via
-`neuromod` in `Cargo.toml`; build with a plain `cargo build` from the repo root.
+sibling repos next to this one. The spiking neural network (SNN) engine is now
+pulled from crates.io via `neuromod` in `Cargo.toml`; build with a plain
+`cargo build` from the repo root.
 
 ### Toolchain / system deps
 
