@@ -1,11 +1,22 @@
 use metrics::{counter, gauge};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{Level, info, warn};
 use tracing_subscriber::FmtSubscriber;
+
+/// Shared telemetry state populated by the main loop and UDP handlers
+#[derive(Debug, Clone, Default)]
+pub struct RelayMetrics {
+    pub spike_count: usize,
+    pub stimulus_latency_ms: f64,
+    pub telemetry_freshness_s: f64,
+    pub dopamine: f32,
+    pub cortisol: f32,
+    pub acetylcholine: f32,
+    pub stimuli_applied_count: u64,
+}
 
 /// Sets up our logging and metrics engines
 pub fn init_telemetry() {
@@ -27,18 +38,31 @@ pub fn init_telemetry() {
     info!("Telemetry initialized. Prometheus metrics available on port 9000.");
 }
 
-/// Spawns a background task to track relay/SNN telemetry.
-pub async fn run_metrics_collector() {
+/// Spawns a background task to track relay/SNN telemetry metrics.
+/// Reads from shared state populated by the main loop and UDP handlers.
+pub async fn run_metrics_collector(metrics: Arc<Mutex<RelayMetrics>>) {
     info!("Starting Metrics Collector...");
 
-    // Use StdRng which is Send + Sync (unlike thread_rng)
-    let mut rng = StdRng::from_entropy();
-
     loop {
-        // --- 1. Track Online Training Metrics ---
-        // Fake training loss for demo/Grafana (real SNN state is reported via UDP GetNeuroState and main loop).
-        let training_loss = rng.gen_range(0.1..0.5);
-        gauge!("online_training_loss").set(training_loss);
+        // --- 1. Track SNN / Relay Telemetry Metrics ---
+        // Read from shared state populated by the main loop and UDP handlers
+        let snapshot = {
+            let guard = metrics.lock().unwrap();
+            guard.clone()
+        };
+
+        // Spike / stimulus metrics (Gauges go up and down)
+        gauge!("relay_spike_rate").set(snapshot.spike_count as f64);
+        gauge!("stimulus_apply_latency_ms").set(snapshot.stimulus_latency_ms);
+        gauge!("telemetry_freshness_s").set(snapshot.telemetry_freshness_s);
+
+        // Neuromodulator levels (from main loop + UDP rewards)
+        gauge!("modulator_dopamine").set(snapshot.dopamine as f64);
+        gauge!("modulator_cortisol").set(snapshot.cortisol as f64);
+        gauge!("modulator_acetylcholine").set(snapshot.acetylcholine as f64);
+
+        // Track applied stimuli (Counters only go up)
+        counter!("relay_stimuli_applied").absolute(snapshot.stimuli_applied_count);
 
         // Simulate tick rate
         sleep(Duration::from_secs(2)).await;

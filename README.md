@@ -1,23 +1,25 @@
 # Thalamic Relay
 
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/Limen-Neural/thalamic-relay#license)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/yourusername/yourrepo#license)
 
 A lightweight CLI relay that observes hardware telemetry and forwards normalized
-stimuli to a spiking neural network (software-only; silicon-bridge/**FPGA (Field-Programmable Gate Array)** bridge dep removed for modularity).
+stimuli to a spiking neural network (software-only; silicon-bridge/FPGA (Field-Programmable Gate Array) bridge dep removed for modularity).
 
 ## Overview
 
-Thalamic Relay is a Rust-based software relay that provides
+Thalamic Relay is a Rust-based hardware orchestration relay that provides
 real-time monitoring of compute telemetry and drives a spiking neural network
-(SNN) in software. It collects GPU/CPU telemetry and exposes a control/observability surface over
-UDP IPC and Prometheus metrics. The relay is platform-agnostic (hardware bridge support removed for modularity).
+(SNN). It collects GPU/CPU telemetry and steps an in-process SNN, exposing a
+control/observability surface over UDP IPC and Prometheus metrics. The relay is
+platform-agnostic: it degrades gracefully to a software-only mode when no GPU
+is present.
 
 ## Features
 
 - **GPU Telemetry**: Real-time monitoring of GPU sensors via NVML (temperature,
   power, clocks, fan, utilization) with a software fallback
-- **Software SNN stepping**: In-process spiking network with neuromodulation (no built-in hardware bridge deps)
-- **Spiking Neural Networks**: In-process SNN stepping via the `neuromod` engine (software-only)
+- **Software SNN stepping**: In-process spiking network with neuromodulation (no built-in FPGA bridge dep)
+- **Spiking Neural Networks**: In-process SNN stepping via the `neuromod` engine
 - **Control IPC**: UDP interface for streaming stimuli, applying reward signals,
   and querying neuromodulator/spike state
 - **Metrics Collection**: Prometheus-compatible metrics export
@@ -28,7 +30,7 @@ UDP IPC and Prometheus metrics. The relay is platform-agnostic (hardware bridge 
 ### Prerequisites
 
 - Rust 2024 edition (toolchain >= 1.85)
-- `pkg-config` development headers
+- `pkg-config` and `libudev` development headers (needed by the serial backend)
 - Linux operating system (tested on Linux)
 - Optional: an NVIDIA GPU with NVML support
 
@@ -46,7 +48,7 @@ cargo run --bin thalamic-relay
 
 ## Usage
 
-The relay runs in software-only mode (FPGA/silicon-bridge backend support removed for modularity) and steps the in-process SNN. Telemetry (GPU/CPU) is still collected.
+The relay runs in software-only mode and steps the in-process SNN. Telemetry (GPU/CPU) is collected when available.
 
 While running it exposes two interfaces:
 
@@ -68,9 +70,10 @@ While running it exposes two interfaces:
 
 ### Key Components
 
-1. **Telemetry System**: Real-time metrics collection and export
-2. **Inference Loop**: Steps the SNN and forwards normalized stimuli
-3. **Emergency Brakes**: Safety mechanisms for hardware protection (degraded)
+1. **Hardware Bridge**: Abstract interface for GPU communication
+2. **Telemetry System**: Real-time metrics collection and export
+3. **SNN Stepping**: In-process spiking neural network execution
+4. **Emergency Brakes**: Safety mechanisms for hardware protection
 
 ## Dependencies
 
@@ -101,7 +104,7 @@ The relay uses environment-based configuration. Key areas include:
 ### Prometheus Metrics
 
 The relay exports metrics compatible with Prometheus monitoring, including
-GPU/CPU telemetry, training loss (demo), and system resource usage.
+GPU telemetry, SNN metrics, and system resource usage.
 
 ### Logging
 
@@ -110,7 +113,8 @@ Structured logging via `tracing` with configurable output levels.
 ## Safety Features
 
 - **Instance Protection**: Lockfile mechanism prevents multiple relay instances
-- **Graceful Degradation**: Runs in software-only mode (hardware bridge support removed)
+- **Emergency Brakes**: Hardware protection mechanisms
+- **Graceful Degradation**: Continues in software-only mode without GPU
 
 ## License
 
