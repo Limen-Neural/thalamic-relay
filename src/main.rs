@@ -18,17 +18,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Acquire the single-instance lock atomically. `create_new` fails if the
+    // file already exists, which closes the check-then-write race where two
+    // concurrent starts could both pass a plain existence check.
     let lock_path = "/tmp/thalamic_relay.lock";
-    if std::path::Path::new(lock_path).exists()
-        && let Ok(content) = std::fs::read_to_string(lock_path)
-        && let Ok(old_pid) = content.trim().parse::<u32>()
-        && std::path::Path::new(&format!("/proc/{old_pid}")).exists()
-    {
-        eprintln!("[relay] FATAL: Another instance is already active (PID: {old_pid}).");
-        std::process::exit(1);
-    }
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)
+        {
+            Ok(mut file) => {
+                writeln!(file, "{}", std::process::id())?;
+                break;
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                // A lock exists: refuse to start if its PID is still alive,
+                // otherwise treat it as stale, reclaim it, and retry.
+                let active_pid = std::fs::read_to_string(lock_path)
+                    .ok()
+                    .and_then(|content| content.trim().parse::<u32>().ok())
+                    .filter(|pid| std::path::Path::new(&format!("/proc/{pid}")).exists());
 
-    std::fs::write(lock_path, std::process::id().to_string())?;
+                if let Some(old_pid) = active_pid {
+                    eprintln!(
+                        "[relay] FATAL: Another instance is already active (PID: {old_pid})."
+                    );
+                    std::process::exit(1);
+                }
+
+                let _ = std::fs::remove_file(lock_path);
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
     let _lock_guard = LockGuard(lock_path);
 
     println!("[relay] --- Thalamic Relay ---");
