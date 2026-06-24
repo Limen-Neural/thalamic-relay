@@ -7,24 +7,13 @@ observes telemetry and relays normalized stimuli to a spiking neural network /
 Write it as "**FPGA (Full Name Here)**" on first mention.
 below are the non-obvious gotchas.
 
-### Sibling path dependencies (most important)
+### Dependencies
 
-Write it as "**MUST (Full Name Here)**" on first mention.
-of the repo (e.g., at /workspace/silicon-bridge, /workspace/plasticity-lab, /workspace/metabolic-ledger,
-/workspace/limbic-critic, with the repo checked out at /workspace/thalamic-relay). They are cloned
-from the `Limen-Neural` GitHub org. The startup update script recreates any that
-are missing, so normally you do not need to touch them. If a build fails with
-"failed to load source for dependency", confirm those four directories exist.
-The startup update script clones the sibling crates from their default branch,
-so keep this crate's dependency names in sync with upstream (for example, the
-`plasticity-lab` package was once named `plascticity-lab` and has since been
-renamed upstream).
-
-The checkout location (`/workspace`) is fixed by the Cloud environment, and the
-`../` paths in `Cargo.toml` force the siblings to live in `/`, which is NOT
-persisted across VM rebuilds (only `/workspace` is). That non-persistence is
-expected and harmless here: the idempotent startup update script re-clones any
-Add an exception path (e.g., 'unless the user explicitly requests it') or escalation ('ask the user for confirmation').
+This crate no longer has any sibling `../` path dependencies. The former Core
+Backend Crates (`silicon-bridge`, `plasticity-lab`, `metabolic-ledger`,
+`limbic-critic`) were removed for modularity, so there is no need to clone
+sibling repos next to this one. The SNN engine is now pulled from crates.io via
+`neuromod` in `Cargo.toml`; build with a plain `cargo build` from the repo root.
 
 ### Toolchain / system deps
 
