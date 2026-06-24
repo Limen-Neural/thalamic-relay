@@ -18,19 +18,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Acquire the single-instance lock atomically. `create_new` fails if the
+    // file already exists, which closes the check-then-write race where two
+    // concurrent starts could both pass a plain existence check.
     let lock_path = "/tmp/thalamic_relay.lock";
-    if std::path::Path::new(lock_path).exists() {
-        if let Ok(content) = std::fs::read_to_string(lock_path) {
-            if let Ok(old_pid) = content.trim().parse::<u32>() {
-                if std::path::Path::new(&format!("/proc/{old_pid}")).exists() {
-                    eprintln!("[relay] FATAL: Another instance is already active (PID: {old_pid}).");
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)
+        {
+            Ok(mut file) => {
+                writeln!(file, "{}", std::process::id())?;
+                break;
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                // A lock exists. Reclaim it ONLY when we can positively confirm
+                // the recorded PID is dead. Any ambiguity (unreadable or
+                // unparseable lock file) fails closed to preserve the
+                // single-instance guarantee.
+                let Some(recorded_pid) = std::fs::read_to_string(lock_path)
+                    .ok()
+                    .and_then(|content| content.trim().parse::<u32>().ok())
+                else {
+                    eprintln!(
+                        "[relay] FATAL: Lock file {lock_path} exists but is unreadable/unparseable; refusing to start."
+                    );
+                    std::process::exit(1);
+                };
+
+                if std::path::Path::new(&format!("/proc/{recorded_pid}")).exists() {
+                    eprintln!(
+                        "[relay] FATAL: Another instance is already active (PID: {recorded_pid})."
+                    );
+                    std::process::exit(1);
+                }
+
+                // Stale lock from a dead PID: remove it and retry. If removal
+                // fails, abort instead of spinning in a tight retry loop.
+                if let Err(remove_err) = std::fs::remove_file(lock_path) {
+                    eprintln!(
+                        "[relay] FATAL: Failed to clear stale lock {lock_path}: {remove_err}"
+                    );
                     std::process::exit(1);
                 }
             }
+            Err(err) => return Err(err.into()),
         }
     }
-
-    std::fs::write(lock_path, std::process::id().to_string())?;
     let _lock_guard = LockGuard(lock_path);
 
     println!("[relay] --- Thalamic Relay ---");
@@ -48,8 +83,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut latest_spike_count: usize = 0;
     let mut step_count: u64 = 0;
 
-    let udp_socket = std::net::UdpSocket::bind("127.0.0.1:9898")
-        .expect("FATAL: Failed to bind IPC socket");
+    let udp_socket =
+        std::net::UdpSocket::bind("127.0.0.1:9898").expect("FATAL: Failed to bind IPC socket");
     udp_socket
         .set_nonblocking(true)
         .expect("FATAL: Failed to set non-blocking UDP");
@@ -73,7 +108,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref mut fpga) = bridge {
             match fpga.step_cluster(&stimuli) {
                 Ok((potentials, spike_word)) => {
-                    print_dashboard(&telemetry, &potentials, spike_word, latest_spike_count, step_count);
+                    print_dashboard(
+                        &telemetry,
+                        &potentials,
+                        spike_word,
+                        latest_spike_count,
+                        step_count,
+                    );
                 }
                 Err(err) => {
                     eprintln!("\n[relay] FPGA sync lost: {err}");
@@ -145,11 +186,7 @@ fn print_dashboard(
     let pot0 = potentials.first().copied().unwrap_or(0.0);
     print!(
         "\r[Step {step}] Pwr: {:5.1}W | Vcore: {:.3}V | FPGA Spikes: {:04X} | SW Spikes: {:2} | Pot0: {:>6.3}   ",
-        telemetry.power_w,
-        telemetry.vddcr_gfx_v,
-        spikes,
-        lif_spike_count,
-        pot0
+        telemetry.power_w, telemetry.vddcr_gfx_v, spikes, lif_spike_count, pot0
     );
     let _ = io::stdout().flush();
 }

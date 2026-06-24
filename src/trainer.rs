@@ -1,10 +1,4 @@
-pub use plasticity_lab::{
-    SpikenautTrainer,
-    TrainerError,
-    TrainingConfig,
-    TrainingExample,
-    TrainingSummary,
-};
+pub use plasticity_lab::{TrainerError, TrainingConfig, TrainingExample, TrainingSummary};
 
 /// Adapter helper for GUI/CLI consumers that only need to display training summaries.
 pub fn summary_line(summary: &TrainingSummary) -> String {

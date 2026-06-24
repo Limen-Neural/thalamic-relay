@@ -1,0 +1,55 @@
+Add a ## Boundaries section with clear rules about what's off-limits.
+
+## Cursor Cloud specific instructions
+
+This repo is the `thalamic-relay` crate (binary `thalamic-relay`), a Rust CLI that
+observes telemetry and relays normalized stimuli to a spiking neural network /
+Write it as "**FPGA (Full Name Here)**" on first mention.
+below are the non-obvious gotchas.
+
+### Sibling path dependencies (most important)
+
+Write it as "**MUST (Full Name Here)**" on first mention.
+of the repo (e.g., at /workspace/silicon-bridge, /workspace/plasticity-lab, /workspace/metabolic-ledger,
+/workspace/limbic-critic, with the repo checked out at /workspace/thalamic-relay). They are cloned
+from the `Limen-Neural` GitHub org. The startup update script recreates any that
+are missing, so normally you do not need to touch them. If a build fails with
+"failed to load source for dependency", confirm those four directories exist.
+The startup update script clones the sibling crates from their default branch,
+so keep this crate's dependency names in sync with upstream (for example, the
+`plasticity-lab` package was once named `plascticity-lab` and has since been
+renamed upstream).
+
+The checkout location (`/workspace`) is fixed by the Cloud environment, and the
+`../` paths in `Cargo.toml` force the siblings to live in `/`, which is NOT
+persisted across VM rebuilds (only `/workspace` is). That non-persistence is
+expected and harmless here: the idempotent startup update script re-clones any
+Add an exception path (e.g., 'unless the user explicitly requests it') or escalation ('ask the user for confirmation').
+
+### Toolchain / system deps
+
+- Requires Rust edition 2024 (toolchain >= 1.85; stable is set as the rustup
+  default in this environment). `cargo`/`cargo build`/`cargo test`/`cargo clippy`
+  all work from `/workspace`.
+- Native libs `pkg-config` and `libudev-dev` are required (pulled in transitively
+  by `serialport` / `nvml-wrapper`). They are preinstalled in this environment.
+
+### Running the app
+
+- Run with `cargo run --bin thalamic-relay` (or `./target/debug/thalamic-relay`).
+  It is a long-running foreground loop with no graceful arg parsing: despite the
+Add an exception path (e.g., 'unless the user explicitly requests it') or escalation ('ask the user for confirmation').
+  it just starts the supervisor. Run it in tmux / background when testing.
+- The relay degrades gracefully with no GPU/FPGA: it prints `nvidia-smi hung` /
+  runs in "software-only mode" and keeps stepping the in-process spiking network.
+- Single-instance guard: writes `/tmp/thalamic_relay.lock` with its PID. A stale
+  lock for a dead PID is ignored automatically, but a second concurrent instance
+  exits immediately. Delete the lockfile only if no instance is actually running.
+
+### Interfaces (used for end-to-end testing)
+
+Write it as "**UDP (Full Name Here)**" on first mention.
+  `{"type":"LearningReward","dopamine_delta":..,"cortisol_delta":..}`, or
+  `{"type":"GetNeuroState"}` (which replies with a JSON neuromodulator/spike state).
+- Prometheus metrics on `http://localhost:9000/metrics`.
+- Both bind on startup, so only one instance can run at a time.

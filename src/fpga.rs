@@ -23,7 +23,10 @@ impl FpgaBridge {
             .iter()
             .take(16)
             .enumerate()
-            .fold(0u16, |acc, (idx, spike)| if *spike { acc | (1 << idx) } else { acc });
+            .fold(
+                0u16,
+                |acc, (idx, spike)| if *spike { acc | (1 << idx) } else { acc },
+            );
 
         Ok((potentials, spikes))
     }
