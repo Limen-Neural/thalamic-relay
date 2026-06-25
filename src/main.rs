@@ -226,7 +226,7 @@ struct Cli {
     lockfile: String,
 
     /// Force software-only mode (skip real GPU telemetry attempts, use sim)
-    #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY")]
+    #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY", action = clap::ArgAction::Set, value_parser = clap::value_parser!(bool), default_value_t = false)]
     force_software_only: bool,
 
     /// SNN input channels (stimuli vector size)

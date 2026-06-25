@@ -32,19 +32,17 @@ pub fn init_telemetry(metrics_addr: Option<&str>) {
     let _ = tracing::subscriber::set_global_default(subscriber);
 
     // 2. Initialize the Prometheus exporter for our metrics.
-    // Defaults to 9000 if not provided (preserves prior behavior).
-    let mut builder = PrometheusBuilder::new();
-    if let Some(addr) = metrics_addr {
-        let sa: std::net::SocketAddr = addr
-            .parse()
-            .expect("THALAMIC_METRICS_ADDR must be a valid socket address (ip:port)");
-        builder = builder.with_http_listener(sa);
-    }
-    builder
+    // Defaults to 0.0.0.0:9000 if not provided (preserves prior behavior).
+    let effective = metrics_addr.unwrap_or("0.0.0.0:9000");
+    let sa: std::net::SocketAddr = effective
+        .parse()
+        .expect("THALAMIC_METRICS_ADDR must be a valid socket address (ip:port)");
+
+    PrometheusBuilder::new()
+        .with_http_listener(sa)
         .install()
         .expect("Failed to install Prometheus recorder");
 
-    let effective = metrics_addr.unwrap_or("0.0.0.0:9000");
     info!(
         "Telemetry initialized. Prometheus metrics available on http://{}/metrics",
         effective

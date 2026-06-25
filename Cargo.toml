@@ -28,3 +28,7 @@ name = "thalamic-relay"
 path = "src/main.rs"
 
 [workspace]
+
+[patch.crates-io]
+# Use ring crypto backend instead of aws-lc-rs to avoid requiring system C headers
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
