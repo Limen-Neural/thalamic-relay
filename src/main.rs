@@ -32,12 +32,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // file already exists, which closes the check-then-write race where two
     // concurrent starts could both pass a plain existence check.
     // (Lock logic is 100% unchanged except the path now comes from CLI/env.)
-    let lock_path = cli.lockfile;
+    let lock_path = "/tmp/thalamic_relay.lock";
     loop {
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&lock_path)
+            .open(lock_path)
         {
             Ok(mut file) => {
                 writeln!(file, "{}", std::process::id())?;
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // the recorded PID is dead. Any ambiguity (unreadable or
                 // unparseable lock file) fails closed to preserve the
                 // single-instance guarantee.
-                let Some(recorded_pid) = std::fs::read_to_string(&lock_path)
+                let Some(recorded_pid) = std::fs::read_to_string(lock_path)
                     .ok()
                     .and_then(|content| content.trim().parse::<u32>().ok())
                 else {
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Stale lock from a dead PID: remove it and retry. If removal
                 // fails, abort instead of spinning in a tight retry loop.
-                if let Err(remove_err) = std::fs::remove_file(&lock_path) {
+                if let Err(remove_err) = std::fs::remove_file(lock_path) {
                     eprintln!(
                         "[relay] FATAL: Failed to clear stale lock {lock_path}: {remove_err}"
                     );
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(err) => return Err(err.into()),
         }
     }
-    let _lock_guard = LockGuard(lock_path); // move the (now configurable) String path
+    let _lock_guard = LockGuard(lock_path.to_string());
 
     println!("[relay] --- Thalamic Relay ---");
     if cli.force_software_only {
@@ -217,14 +217,6 @@ struct Cli {
     #[arg(long, default_value_t = 100, env = "THALAMIC_STEP_INTERVAL_MS")]
     step_interval_ms: u64,
 
-    /// Single-instance lockfile path
-    #[arg(
-        long,
-        default_value = "/tmp/thalamic_relay.lock",
-        env = "THALAMIC_LOCKFILE"
-    )]
-    lockfile: String,
-
     /// Force software-only mode (skip real GPU telemetry attempts, use sim)
     #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY", action = clap::ArgAction::Set, value_parser = clap::value_parser!(bool), default_value_t = false)]
     force_software_only: bool,
@@ -259,12 +251,19 @@ mod tests {
             "--step-interval-ms",
             "50",
             "--force-software-only",
+            "true",
             "--num-channels",
             "8",
         ])
         .unwrap();
-        assert_eq!(cli.udp_addr, "127.0.0.1:12345");
-        assert_eq!(cli.metrics_addr, "127.0.0.1:9091");
+        assert_eq!(
+            cli.udp_addr,
+            "127.0.0.1:12345".parse::<std::net::SocketAddr>().unwrap()
+        );
+        assert_eq!(
+            cli.metrics_addr,
+            "127.0.0.1:9091".parse::<std::net::SocketAddr>().unwrap()
+        );
         assert_eq!(cli.step_interval_ms, 50);
         assert!(cli.force_software_only);
         assert_eq!(cli.num_channels, 8);
