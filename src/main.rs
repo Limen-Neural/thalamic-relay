@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create shared metrics state
     // init_telemetry now accepts the (possibly custom) metrics addr
-    cpu::init_telemetry(Some(&cli.metrics_addr));
+    cpu::init_telemetry(Some(cli.metrics_addr));
 
     let relay_metrics = Arc::new(Mutex::new(RelayMetrics::default()));
     let metrics_clone = Arc::clone(&relay_metrics);
@@ -95,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stimuli_applied_count: u64 = 0;
 
     let udp_socket =
-        std::net::UdpSocket::bind(&cli.udp_addr).expect("FATAL: Failed to bind IPC socket");
+        std::net::UdpSocket::bind(cli.udp_addr).expect("FATAL: Failed to bind IPC socket");
     udp_socket
         .set_nonblocking(true)
         .expect("FATAL: Failed to set non-blocking UDP");
@@ -206,12 +206,12 @@ fn print_dashboard(telemetry: &GpuTelemetry, lif_spike_count: usize, step: u64) 
 )]
 struct Cli {
     /// UDP bind address:port for IPC (Stimuli / LearningReward / GetNeuroState)
-    #[arg(long, default_value = "127.0.0.1:9898", env = "THALAMIC_UDP_ADDR")]
-    udp_addr: String,
+    #[arg(long, default_value = "127.0.0.1:9898", env = "THALAMIC_UDP_ADDR", value_parser = clap::value_parser!(std::net::SocketAddr))]
+    udp_addr: std::net::SocketAddr,
 
-    /// Prometheus metrics listen address:port
-    #[arg(long, default_value = "127.0.0.1:9000", env = "THALAMIC_METRICS_ADDR")]
-    metrics_addr: String,
+    /// Prometheus metrics listen address:port (host part configurable, port fixed at 9000 per compliance)
+    #[arg(long, default_value = "127.0.0.1:9000", env = "THALAMIC_METRICS_ADDR", value_parser = clap::value_parser!(std::net::SocketAddr))]
+    metrics_addr: std::net::SocketAddr,
 
     /// SNN step interval (ms)
     #[arg(long, default_value_t = 100, env = "THALAMIC_STEP_INTERVAL_MS")]

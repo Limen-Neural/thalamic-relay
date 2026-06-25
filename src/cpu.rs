@@ -22,7 +22,7 @@ pub struct RelayMetrics {
 /// If `metrics_addr` is Some (e.g. "0.0.0.0:9090"), configure the HTTP listener
 /// via with_http_listener (supported in metrics-exporter-prometheus 0.16+).
 /// RUST_LOG (or future log-level arg) still controls tracing via env filter where applicable.
-pub fn init_telemetry(metrics_addr: Option<&str>) {
+pub fn init_telemetry(metrics_addr: Option<std::net::SocketAddr>) {
     // 1. Initialize 'tracing' for our structured logs
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
@@ -32,14 +32,11 @@ pub fn init_telemetry(metrics_addr: Option<&str>) {
     let _ = tracing::subscriber::set_global_default(subscriber);
 
     // 2. Initialize the Prometheus exporter for our metrics.
-    // Defaults to 0.0.0.0:9000 if not provided (preserves prior behavior).
-    let effective = metrics_addr.unwrap_or("0.0.0.0:9000");
-    let sa: std::net::SocketAddr = effective
-        .parse()
-        .expect("THALAMIC_METRICS_ADDR must be a valid socket address (ip:port)");
+    // Port is always 9000 (compliance); host/IP may be customized via CLI/env.
+    let effective = metrics_addr.unwrap_or_else(|| "127.0.0.1:9000".parse().unwrap());
 
     PrometheusBuilder::new()
-        .with_http_listener(sa)
+        .with_http_listener(effective)
         .install()
         .expect("Failed to install Prometheus recorder");
 
