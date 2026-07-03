@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // file already exists, which closes the check-then-write race where two
     // concurrent starts could both pass a plain existence check.
     // (Lock logic is 100% unchanged except the path now comes from CLI/env.)
-    let lock_path = "/tmp/thalamic_relay.lock";
+    let lock_path = &cli.lockfile;
     loop {
         match std::fs::OpenOptions::new()
             .write(true)
@@ -232,6 +232,10 @@ struct Cli {
     /// SNN outputs for with_dimensions
     #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_OUTPUTS")]
     num_outputs: usize,
+
+    /// Path to single-instance lock file
+    #[arg(long, default_value = "/tmp/thalamic_relay.lock", env = "THALAMIC_LOCKFILE")]
+    lockfile: String,
 }
 
 #[cfg(test)]
