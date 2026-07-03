@@ -98,7 +98,7 @@ Run `thalamic-relay --help` (or `-V`) for the full documented surface.
 Key options (with env var equivalent):
 
 - `--udp-addr` / `THALAMIC_UDP_ADDR` (default: 127.0.0.1:9898) — **UDP (User Datagram Protocol)** IPC bind
-- `--metrics-addr` / `THALAMIC_METRICS_ADDR` (default: 127.0.0.1:9000)
+- `--metrics-ip` / `THALAMIC_METRICS_IP` (default: 127.0.0.1; port is always 9000)
 - `--step-interval-ms` / `THALAMIC_STEP_INTERVAL_MS` (default: 100)
 - `--lockfile` / `THALAMIC_LOCKFILE` (default: /tmp/thalamic_relay.lock)
 - `--force-software-only` / `THALAMIC_FORCE_SOFTWARE_ONLY`
@@ -107,7 +107,7 @@ Key options (with env var equivalent):
 
 Example with env + flag:
 ```bash
-THALAMIC_UDP_ADDR=0.0.0.0:12345 THALAMIC_METRICS_ADDR=0.0.0.0:9000 \
+THALAMIC_UDP_ADDR=0.0.0.0:12345 THALAMIC_METRICS_IP=0.0.0.0 \
   cargo run --bin thalamic-relay -- --force-software-only --step-interval-ms 50
 ```
 

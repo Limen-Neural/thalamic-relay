@@ -11,8 +11,7 @@ use tokio::time::sleep;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    // Enforce port 9000 for Prometheus compliance; only the host/IP is configurable.
-    let metrics_addr = std::net::SocketAddr::new(cli.metrics_addr.ip(), 9000);
+    let metrics_addr = std::net::SocketAddr::new(cli.metrics_ip, 9000);
     cpu::init_telemetry(metrics_addr);
 
     let relay_metrics = Arc::new(Mutex::new(RelayMetrics::default()));
@@ -209,9 +208,9 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:9898", env = "THALAMIC_UDP_ADDR", value_parser = clap::value_parser!(std::net::SocketAddr))]
     udp_addr: std::net::SocketAddr,
 
-    /// Prometheus metrics listen address:port (host part configurable, port fixed at 9000 per compliance)
-    #[arg(long, default_value = "127.0.0.1:9000", env = "THALAMIC_METRICS_ADDR", value_parser = clap::value_parser!(std::net::SocketAddr))]
-    metrics_addr: std::net::SocketAddr,
+    /// Prometheus metrics listen IP (port is always 9000 per compliance)
+    #[arg(long, default_value = "127.0.0.1", env = "THALAMIC_METRICS_IP", value_parser = clap::value_parser!(std::net::IpAddr))]
+    metrics_ip: std::net::IpAddr,
 
     /// SNN step interval (ms); minimum 1 to prevent busy-looping
     #[arg(long, default_value_t = 100, env = "THALAMIC_STEP_INTERVAL_MS", value_parser = clap::value_parser!(u64).range(1..))]
@@ -221,16 +220,16 @@ struct Cli {
     #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY", num_args = 0..=1, default_missing_value = "true", default_value_t = false, value_parser = clap::value_parser!(bool))]
     force_software_only: bool,
 
-    /// SNN input channels (stimuli vector size)
-    #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_CHANNELS")]
+    /// SNN input channels (stimuli vector size); must be >= 1
+    #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_CHANNELS", value_parser = parse_nonzero_usize)]
     num_channels: usize,
 
-    /// SNN layers/hidden param for with_dimensions
-    #[arg(long, default_value_t = 5, env = "THALAMIC_NUM_LAYERS")]
+    /// SNN layers/hidden param for with_dimensions; must be >= 1
+    #[arg(long, default_value_t = 5, env = "THALAMIC_NUM_LAYERS", value_parser = parse_nonzero_usize)]
     num_layers: usize,
 
-    /// SNN outputs for with_dimensions
-    #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_OUTPUTS")]
+    /// SNN outputs for with_dimensions; must be >= 1
+    #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_OUTPUTS", value_parser = parse_nonzero_usize)]
     num_outputs: usize,
 
     /// Path to single-instance lock file
@@ -240,6 +239,14 @@ struct Cli {
         env = "THALAMIC_LOCKFILE"
     )]
     lockfile: String,
+}
+
+fn parse_nonzero_usize(s: &str) -> Result<usize, String> {
+    let val: usize = s.parse().map_err(|e| format!("{e}"))?;
+    if val == 0 {
+        return Err("value must be >= 1".to_string());
+    }
+    Ok(val)
 }
 
 #[cfg(test)]
@@ -254,8 +261,8 @@ mod tests {
             "thalamic-relay",
             "--udp-addr",
             "127.0.0.1:12345",
-            "--metrics-addr",
-            "127.0.0.1:9091",
+            "--metrics-ip",
+            "0.0.0.0",
             "--step-interval-ms",
             "50",
             "--force-software-only",
@@ -268,8 +275,8 @@ mod tests {
             "127.0.0.1:12345".parse::<std::net::SocketAddr>().unwrap()
         );
         assert_eq!(
-            cli.metrics_addr,
-            "127.0.0.1:9091".parse::<std::net::SocketAddr>().unwrap()
+            cli.metrics_ip,
+            "0.0.0.0".parse::<std::net::IpAddr>().unwrap()
         );
         assert_eq!(cli.step_interval_ms, 50);
         assert!(cli.force_software_only);
