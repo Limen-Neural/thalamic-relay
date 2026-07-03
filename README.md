@@ -53,12 +53,12 @@ The relay runs in software-only mode and steps the in-process SNN. Telemetry (GP
 While running it exposes two interfaces (addresses configurable via CLI/env; see Configuration):
 
 - **UDP (User Datagram Protocol) IPC** (defaults to 127.0.0.1:9898; newline-free JSON messages):
-  - `{"type":"Stimuli","values":[/* up to 16 f32 */]}` — drive the network
+  - `{"type":"Stimuli","values":[/* up to N f32 (N = --num-channels, default 16) */]}` — drive the network
   - `{"type":"LearningReward","dopamine_delta":<f32>,"cortisol_delta":<f32>}` —
     apply reward/stress modulation
   - `{"type":"GetNeuroState"}` — returns a JSON snapshot of the current
     neuromodulator levels and spike count
-- **Prometheus metrics** on `http://localhost:9000/metrics` (or your --metrics-addr)
+- **Prometheus metrics** on `http://localhost:9000/metrics` (bind IP configurable via --metrics-ip)
 
 ## Architecture
 
