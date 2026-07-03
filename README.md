@@ -107,7 +107,7 @@ Key options (with env var equivalent):
 
 Example with env + flag:
 ```bash
-THALAMIC_UDP_ADDR=0.0.0.0:12345 THALAMIC_METRICS_ADDR=0.0.0.0:9091 \
+THALAMIC_UDP_ADDR=0.0.0.0:12345 THALAMIC_METRICS_ADDR=0.0.0.0:9000 \
   cargo run --bin thalamic-relay -- --force-software-only --step-interval-ms 50
 ```
 

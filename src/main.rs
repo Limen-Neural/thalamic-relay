@@ -11,9 +11,9 @@ use tokio::time::sleep;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    // Create shared metrics state
-    // init_telemetry now accepts the (possibly custom) metrics addr
-    cpu::init_telemetry(Some(cli.metrics_addr));
+    // Enforce port 9000 for Prometheus compliance; only the host/IP is configurable.
+    let metrics_addr = std::net::SocketAddr::new(cli.metrics_addr.ip(), 9000);
+    cpu::init_telemetry(metrics_addr);
 
     let relay_metrics = Arc::new(Mutex::new(RelayMetrics::default()));
     let metrics_clone = Arc::clone(&relay_metrics);
@@ -213,12 +213,12 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:9000", env = "THALAMIC_METRICS_ADDR", value_parser = clap::value_parser!(std::net::SocketAddr))]
     metrics_addr: std::net::SocketAddr,
 
-    /// SNN step interval (ms)
-    #[arg(long, default_value_t = 100, env = "THALAMIC_STEP_INTERVAL_MS")]
+    /// SNN step interval (ms); minimum 1 to prevent busy-looping
+    #[arg(long, default_value_t = 100, env = "THALAMIC_STEP_INTERVAL_MS", value_parser = clap::value_parser!(u64).range(1..))]
     step_interval_ms: u64,
 
     /// Force software-only mode (skip real GPU telemetry attempts, use sim)
-    #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY", action = clap::ArgAction::Set, value_parser = clap::value_parser!(bool), default_value_t = false)]
+    #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY", num_args = 0..=1, default_missing_value = "true", default_value_t = false, value_parser = clap::value_parser!(bool))]
     force_software_only: bool,
 
     /// SNN input channels (stimuli vector size)
@@ -234,7 +234,11 @@ struct Cli {
     num_outputs: usize,
 
     /// Path to single-instance lock file
-    #[arg(long, default_value = "/tmp/thalamic_relay.lock", env = "THALAMIC_LOCKFILE")]
+    #[arg(
+        long,
+        default_value = "/tmp/thalamic_relay.lock",
+        env = "THALAMIC_LOCKFILE"
+    )]
     lockfile: String,
 }
 
@@ -255,7 +259,6 @@ mod tests {
             "--step-interval-ms",
             "50",
             "--force-software-only",
-            "true",
             "--num-channels",
             "8",
         ])
