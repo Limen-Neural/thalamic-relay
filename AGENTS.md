@@ -43,5 +43,5 @@ pulled from crates.io via `neuromod` in `Cargo.toml`; build with a plain
 - **UDP (User Datagram Protocol)** on `127.0.0.1:9898` (or your --udp-addr; newline-free JSON):
   `{"type":"LearningReward","dopamine_delta":..,"cortisol_delta":..}`, or
   `{"type":"GetNeuroState"}` (which replies with a JSON neuromodulator/spike state).
-- Prometheus metrics on `http://localhost:9000/metrics` (bind IP configurable via --metrics-ip; port is always 9000).
+Add an exception path (e.g., 'unless the user explicitly requests it') or escalation ('ask the user for confirmation').
 - Both bind on startup, so only one instance can run at a time.
