@@ -84,8 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("[relay] running in software-only mode (no FPGA/silicon-bridge)");
     }
 
-    let mut network =
-        SpikingNetwork::with_dimensions(cli.num_channels, cli.num_layers, cli.num_outputs);
+    let mut network = SpikingNetwork::with_dimensions(cli.num_lif, cli.num_izh, cli.num_channels);
     let mut modulators = NeuroModulators::default();
     let mut stimuli = vec![0.0_f32; network.num_channels];
     let mut latest_spike_count: usize = 0;
@@ -221,17 +220,17 @@ struct Cli {
     #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY", num_args = 0..=1, default_missing_value = "true", default_value_t = false, value_parser = clap::value_parser!(bool))]
     force_software_only: bool,
 
-    /// SNN input channels (stimuli vector size); must be >= 1
+    /// SNN input channels / stimuli vector size (maps to num_channels in neuromod); must be >= 1
     #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_CHANNELS", value_parser = parse_nonzero_usize)]
     num_channels: usize,
 
-    /// SNN layers/hidden param for with_dimensions; must be >= 1
-    #[arg(long, default_value_t = 5, env = "THALAMIC_NUM_LAYERS", value_parser = parse_nonzero_usize)]
-    num_layers: usize,
+    /// SNN LIF neuron count (maps to num_lif in neuromod); must be >= 1
+    #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_LIF", value_parser = parse_nonzero_usize)]
+    num_lif: usize,
 
-    /// SNN outputs for with_dimensions; must be >= 1
-    #[arg(long, default_value_t = 16, env = "THALAMIC_NUM_OUTPUTS", value_parser = parse_nonzero_usize)]
-    num_outputs: usize,
+    /// SNN Izhikevich neuron count (maps to num_izh in neuromod); must be >= 1
+    #[arg(long, default_value_t = 5, env = "THALAMIC_NUM_IZH", value_parser = parse_nonzero_usize)]
+    num_izh: usize,
 }
 
 fn parse_nonzero_usize(s: &str) -> Result<usize, String> {
@@ -274,6 +273,7 @@ mod tests {
         assert_eq!(cli.step_interval_ms, 50);
         assert!(cli.force_software_only);
         assert_eq!(cli.num_channels, 8);
-        assert_eq!(cli.num_layers, 5); // default
+        assert_eq!(cli.num_lif, 16); // default
+        assert_eq!(cli.num_izh, 5); // default
     }
 }
