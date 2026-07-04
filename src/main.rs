@@ -11,15 +11,6 @@ use tokio::time::sleep;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    let metrics_addr = std::net::SocketAddr::new(cli.metrics_ip, 9000);
-    cpu::init_telemetry(metrics_addr);
-
-    let relay_metrics = Arc::new(Mutex::new(RelayMetrics::default()));
-    let metrics_clone = Arc::clone(&relay_metrics);
-    tokio::spawn(async move {
-        cpu::run_metrics_collector(metrics_clone).await;
-    });
-
     struct LockGuard(String);
     impl Drop for LockGuard {
         fn drop(&mut self) {
@@ -27,9 +18,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Acquire the single-instance lock atomically. `create_new` fails if the
-    // file already exists, which closes the check-then-write race where two
-    // concurrent starts could both pass a plain existence check.
+    // Acquire the single-instance lock atomically BEFORE binding any ports.
+    // This ensures the clean "Another instance is already active" message
+    // appears instead of a Prometheus bind panic when two instances race.
     let lock_path = "/tmp/thalamic_relay.lock";
     loop {
         match std::fs::OpenOptions::new()
@@ -76,6 +67,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let _lock_guard = LockGuard(lock_path.to_string());
+
+    let metrics_addr = std::net::SocketAddr::new(cli.metrics_ip, 9000);
+    cpu::init_telemetry(metrics_addr);
+
+    let relay_metrics = Arc::new(Mutex::new(RelayMetrics::default()));
+    let metrics_clone = Arc::clone(&relay_metrics);
+    tokio::spawn(async move {
+        cpu::run_metrics_collector(metrics_clone).await;
+    });
 
     println!("[relay] --- Thalamic Relay ---");
     if cli.force_software_only {
