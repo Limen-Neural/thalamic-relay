@@ -101,7 +101,7 @@ Key options (with env var equivalent):
 - `--metrics-ip` / `THALAMIC_METRICS_IP` (default: 127.0.0.1; port is always 9000)
 - `--step-interval-ms` / `THALAMIC_STEP_INTERVAL_MS` (default: 100)
 - `--force-software-only` / `THALAMIC_FORCE_SOFTWARE_ONLY`
-- `--num-channels` / `THALAMIC_NUM_CHANNELS`, `--num-layers`, `--num-outputs` (SNN dims for `with_dimensions`)
+- `--num-channels` / `THALAMIC_NUM_CHANNELS` (input channels/stimuli vector), `--num-lif` / `THALAMIC_NUM_LIF` (LIF neurons), `--num-izh` / `THALAMIC_NUM_IZH` (Izhikevich neurons) — SNN dims for `with_dimensions`
 - `RUST_LOG` (standard for tracing; or --log-level in future extensions)
 
 Example with env + flag:
