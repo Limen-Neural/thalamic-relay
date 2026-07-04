@@ -100,7 +100,6 @@ Key options (with env var equivalent):
 - `--udp-addr` / `THALAMIC_UDP_ADDR` (default: 127.0.0.1:9898) — **UDP (User Datagram Protocol)** IPC bind
 - `--metrics-ip` / `THALAMIC_METRICS_IP` (default: 127.0.0.1; port is always 9000)
 - `--step-interval-ms` / `THALAMIC_STEP_INTERVAL_MS` (default: 100)
-- `--lockfile` / `THALAMIC_LOCKFILE` (default: /tmp/thalamic_relay.lock)
 - `--force-software-only` / `THALAMIC_FORCE_SOFTWARE_ONLY`
 - `--num-channels` / `THALAMIC_NUM_CHANNELS`, `--num-layers`, `--num-outputs` (SNN dims for `with_dimensions`)
 - `RUST_LOG` (standard for tracing; or --log-level in future extensions)
