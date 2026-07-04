@@ -216,7 +216,9 @@ struct Cli {
     #[arg(long, default_value_t = 100, env = "THALAMIC_STEP_INTERVAL_MS", value_parser = clap::value_parser!(u64).range(1..))]
     step_interval_ms: u64,
 
-    /// Force software-only mode (skip real GPU telemetry attempts, use sim)
+    /// Force software-only mode (skip real GPU telemetry attempts, use sim).
+    /// Usable as a bare flag (`--force-software-only`) or with an explicit
+    /// value (`--force-software-only=false` / `THALAMIC_FORCE_SOFTWARE_ONLY=false`).
     #[arg(long, env = "THALAMIC_FORCE_SOFTWARE_ONLY", num_args = 0..=1, default_missing_value = "true", default_value_t = false, value_parser = clap::value_parser!(bool))]
     force_software_only: bool,
 
