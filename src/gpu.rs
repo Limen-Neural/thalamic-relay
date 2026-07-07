@@ -199,12 +199,14 @@ impl HardwareBridge {
     }
 
     /// Check GPU safety thresholds against telemetry readings.
-    /// Skips checks on simulated values (software-only mode).
+    /// Skips checks when no real GPU telemetry is available (simulated idle values).
     pub fn check_safety(telemetry: &GpuTelemetry) -> SafetyStatus {
-        // Simulated idle values: temp=0, power=25W — skip safety checks
-        if telemetry.gpu_temp_c == 0.0 && telemetry.power_w <= 25.0 {
+        // Simulated idle: temp=0, power=25W, vddcr=0.7V — no real GPU present
+        if telemetry.gpu_temp_c <= 0.0 && telemetry.power_w <= 25.0 && telemetry.vddcr_gfx_v <= 0.7
+        {
             return SafetyStatus::Ok;
         }
+        // Critical thresholds
         if telemetry.gpu_temp_c > 85.0 {
             return SafetyStatus::Critical(format!(
                 "GPU thermal: {:.0}\u{00b0}C exceeds 85\u{00b0}C",
@@ -214,6 +216,19 @@ impl HardwareBridge {
         if telemetry.power_w > 350.0 {
             return SafetyStatus::Critical(format!(
                 "GPU power: {:.0}W exceeds 350W (TDP=360W)",
+                telemetry.power_w
+            ));
+        }
+        // Warning thresholds
+        if telemetry.gpu_temp_c > 75.0 {
+            return SafetyStatus::Warn(format!(
+                "GPU thermal: {:.0}\u{00b0}C approaching 85\u{00b0}C limit",
+                telemetry.gpu_temp_c
+            ));
+        }
+        if telemetry.power_w > 300.0 {
+            return SafetyStatus::Warn(format!(
+                "GPU power: {:.0}W approaching 350W limit",
                 telemetry.power_w
             ));
         }
@@ -258,9 +273,38 @@ mod tests {
         let telem = GpuTelemetry {
             gpu_temp_c: 0.0,
             power_w: 25.0,
+            vddcr_gfx_v: 0.7,
             ..Default::default()
         };
         assert_eq!(HardwareBridge::check_safety(&telem), SafetyStatus::Ok);
+    }
+
+    #[test]
+    fn test_safety_warn_on_elevated_temp() {
+        let telem = GpuTelemetry {
+            gpu_temp_c: 78.0,
+            power_w: 200.0,
+            vddcr_gfx_v: 0.9,
+            ..Default::default()
+        };
+        assert!(matches!(
+            HardwareBridge::check_safety(&telem),
+            SafetyStatus::Warn(_)
+        ));
+    }
+
+    #[test]
+    fn test_safety_warn_on_elevated_power() {
+        let telem = GpuTelemetry {
+            gpu_temp_c: 70.0,
+            power_w: 320.0,
+            vddcr_gfx_v: 0.9,
+            ..Default::default()
+        };
+        assert!(matches!(
+            HardwareBridge::check_safety(&telem),
+            SafetyStatus::Warn(_)
+        ));
     }
 
     #[test]
@@ -268,6 +312,7 @@ mod tests {
         let telem = GpuTelemetry {
             gpu_temp_c: 90.0,
             power_w: 200.0,
+            vddcr_gfx_v: 0.9,
             ..Default::default()
         };
         assert!(matches!(
@@ -281,6 +326,7 @@ mod tests {
         let telem = GpuTelemetry {
             gpu_temp_c: 70.0,
             power_w: 360.0,
+            vddcr_gfx_v: 1.0,
             ..Default::default()
         };
         assert!(matches!(

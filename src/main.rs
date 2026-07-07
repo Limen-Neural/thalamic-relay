@@ -90,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut latest_spike_count: usize = 0;
     let mut step_count: u64 = 0;
     let mut stimuli_applied_count: u64 = 0;
+    let mut brake_applied = false;
 
     let udp_socket =
         std::net::UdpSocket::bind(cli.udp_addr).expect("FATAL: Failed to bind IPC socket");
@@ -102,19 +103,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let loop_start = Instant::now();
         let telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
 
-        // Safety check every ~1 second (10 steps at 100ms)
+        // Safety check every 10 steps (rate scales with step_interval_ms)
         if step_count.is_multiple_of(10) {
             match HardwareBridge::check_safety(&telemetry) {
                 SafetyStatus::Critical(msg) => {
                     eprintln!("[relay] SAFETY CRITICAL: {msg}");
-                    if let Err(e) = HardwareBridge::apply_emergency_brake(0.5) {
-                        eprintln!("[relay] Emergency brake failed: {e}");
+                    if !brake_applied {
+                        if let Err(e) = HardwareBridge::apply_emergency_brake(0.5) {
+                            eprintln!("[relay] Emergency brake failed: {e}");
+                        } else {
+                            brake_applied = true;
+                        }
                     }
                 }
                 SafetyStatus::Warn(msg) => {
                     eprintln!("[relay] SAFETY WARN: {msg}");
                 }
-                SafetyStatus::Ok => {}
+                SafetyStatus::Ok => {
+                    brake_applied = false;
+                }
             }
         }
 
