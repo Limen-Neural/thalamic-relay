@@ -256,6 +256,26 @@ impl HardwareBridge {
 
         Ok(())
     }
+
+    /// Release the emergency brake — restore GPU power limit to default.
+    pub fn release_emergency_brake() -> Result<(), String> {
+        let base_pl = 450; // RTX 5080 base TGP
+        println!(
+            "[hardware_bridge] RELEASING BRAKE: Restoring PL to {}W",
+            base_pl
+        );
+
+        let status = std::process::Command::new("sudo")
+            .args(["nvidia-smi", "-pl", &base_pl.to_string()])
+            .status()
+            .map_err(|e| format!("Failed to exec nvidia-smi: {}", e))?;
+
+        if !status.success() {
+            return Err("nvidia-smi (power limit restore) failed.".to_string());
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

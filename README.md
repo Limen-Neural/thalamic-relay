@@ -66,7 +66,6 @@ While running it exposes two interfaces (addresses configurable via CLI/env; see
 
 - **`gpu`**: Hardware bridge for GPU telemetry collection
 - **`cpu`**: Telemetry initialization and metrics collection
-- **`models`**: Shared data models for hardware components
 
 ### Key Components
 

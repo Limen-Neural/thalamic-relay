@@ -109,10 +109,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 SafetyStatus::Critical(msg) => {
                     eprintln!("[relay] SAFETY CRITICAL: {msg}");
                     if !brake_applied {
-                        if let Err(e) = HardwareBridge::apply_emergency_brake(0.5) {
-                            eprintln!("[relay] Emergency brake failed: {e}");
-                        } else {
-                            brake_applied = true;
+                        let brake_result = tokio::task::spawn_blocking(|| {
+                            HardwareBridge::apply_emergency_brake(0.5)
+                        })
+                        .await;
+                        match brake_result {
+                            Ok(Ok(())) => brake_applied = true,
+                            Ok(Err(e)) => eprintln!("[relay] Emergency brake failed: {e}"),
+                            Err(e) => eprintln!("[relay] Brake task panicked: {e}"),
                         }
                     }
                 }
@@ -120,7 +124,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("[relay] SAFETY WARN: {msg}");
                 }
                 SafetyStatus::Ok => {
-                    brake_applied = false;
+                    if brake_applied {
+                        let release_result = tokio::task::spawn_blocking(|| {
+                            HardwareBridge::release_emergency_brake()
+                        })
+                        .await;
+                        match release_result {
+                            Ok(Ok(())) => brake_applied = false,
+                            Ok(Err(e)) => eprintln!("[relay] Brake release failed: {e}"),
+                            Err(e) => eprintln!("[relay] Brake release task panicked: {e}"),
+                        }
+                    }
                 }
             }
         }
