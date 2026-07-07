@@ -60,6 +60,15 @@ impl GpuTelemetry {
     }
 }
 
+// ── Safety Status ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SafetyStatus {
+    Ok,
+    Warn(String),
+    Critical(String),
+}
+
 // ── Hardware Bridge ─────────────────────────────────────────────────
 
 pub struct HardwareBridge;
@@ -189,14 +198,26 @@ impl HardwareBridge {
         })
     }
 
-    /// Accesses the CH347 SPI interface for firmware verification.
-    pub fn check_firmware() -> bool {
-        true // Placeholder for CRC validation
-    }
-
-    /// Check if all voltage rails are within spec.
-    pub fn check_rails(_telem: &GpuTelemetry) -> Vec<(&'static str, bool)> {
-        vec![]
+    /// Check GPU safety thresholds against telemetry readings.
+    /// Skips checks on simulated values (software-only mode).
+    pub fn check_safety(telemetry: &GpuTelemetry) -> SafetyStatus {
+        // Simulated idle values: temp=0, power=25W — skip safety checks
+        if telemetry.gpu_temp_c == 0.0 && telemetry.power_w <= 25.0 {
+            return SafetyStatus::Ok;
+        }
+        if telemetry.gpu_temp_c > 85.0 {
+            return SafetyStatus::Critical(format!(
+                "GPU thermal: {:.0}\u{00b0}C exceeds 85\u{00b0}C",
+                telemetry.gpu_temp_c
+            ));
+        }
+        if telemetry.power_w > 350.0 {
+            return SafetyStatus::Critical(format!(
+                "GPU power: {:.0}W exceeds 350W (TDP=360W)",
+                telemetry.power_w
+            ));
+        }
+        SafetyStatus::Ok
     }
 
     /// CLOSED LOOP CONTROL: The Emergency Brake.
@@ -230,5 +251,41 @@ mod tests {
     fn test_telemetry_struct() {
         let telem = GpuTelemetry::default();
         assert_eq!(telem.power_w, 0.0);
+    }
+
+    #[test]
+    fn test_safety_ok_on_simulated_values() {
+        let telem = GpuTelemetry {
+            gpu_temp_c: 0.0,
+            power_w: 25.0,
+            ..Default::default()
+        };
+        assert_eq!(HardwareBridge::check_safety(&telem), SafetyStatus::Ok);
+    }
+
+    #[test]
+    fn test_safety_critical_on_high_temp() {
+        let telem = GpuTelemetry {
+            gpu_temp_c: 90.0,
+            power_w: 200.0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            HardwareBridge::check_safety(&telem),
+            SafetyStatus::Critical(_)
+        ));
+    }
+
+    #[test]
+    fn test_safety_critical_on_high_power() {
+        let telem = GpuTelemetry {
+            gpu_temp_c: 70.0,
+            power_w: 360.0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            HardwareBridge::check_safety(&telem),
+            SafetyStatus::Critical(_)
+        ));
     }
 }

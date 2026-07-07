@@ -123,9 +123,10 @@ Structured logging via `tracing` with configurable output levels.
 
 ## Safety Features
 
-- **Instance Protection**: Lockfile mechanism prevents multiple relay instances
-- **Emergency Brakes**: Hardware protection mechanisms
-- **Graceful Degradation**: Continues in software-only mode without GPU
+- **Instance Protection**: Lockfile mechanism prevents multiple relay instances (lock acquired before port binding)
+- **GPU Safety Monitoring**: Main loop checks thermal (85°C) and power (350W) thresholds every ~1 second
+- **Emergency Brakes**: Automatically throttles GPU power limit to 50% via `nvidia-smi -pl` on critical threshold
+- **Graceful Degradation**: Continues in software-only mode without GPU; safety checks skip simulated values
 
 ## License
 

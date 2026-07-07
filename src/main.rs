@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use thalamic_relay::cpu::{self, RelayMetrics};
-use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge};
+use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge, SafetyStatus};
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -101,6 +101,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         step_count += 1;
         let loop_start = Instant::now();
         let telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
+
+        // Safety check every ~1 second (10 steps at 100ms)
+        if step_count.is_multiple_of(10) {
+            match HardwareBridge::check_safety(&telemetry) {
+                SafetyStatus::Critical(msg) => {
+                    eprintln!("[relay] SAFETY CRITICAL: {msg}");
+                    if let Err(e) = HardwareBridge::apply_emergency_brake(0.5) {
+                        eprintln!("[relay] Emergency brake failed: {e}");
+                    }
+                }
+                SafetyStatus::Warn(msg) => {
+                    eprintln!("[relay] SAFETY WARN: {msg}");
+                }
+                SafetyStatus::Ok => {}
+            }
+        }
 
         let stimuli_applied = process_udp_messages(
             &udp_socket,
