@@ -91,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut step_count: u64 = 0;
     let mut stimuli_applied_count: u64 = 0;
     let mut brake_applied = false;
+    let mut ok_count_after_brake: u32 = 0;
 
     let udp_socket =
         std::net::UdpSocket::bind(cli.udp_addr).expect("FATAL: Failed to bind IPC socket");
@@ -105,9 +106,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Safety check every 10 steps (rate scales with step_interval_ms)
         if step_count.is_multiple_of(10) {
-            match HardwareBridge::check_safety(&telemetry) {
+            let (safety, is_sim) = HardwareBridge::check_safety(&telemetry);
+            match safety {
                 SafetyStatus::Critical(msg) => {
                     eprintln!("[relay] SAFETY CRITICAL: {msg}");
+                    ok_count_after_brake = 0;
                     if !brake_applied {
                         let brake_result = tokio::task::spawn_blocking(|| {
                             HardwareBridge::apply_emergency_brake(0.5)
@@ -122,17 +125,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 SafetyStatus::Warn(msg) => {
                     eprintln!("[relay] SAFETY WARN: {msg}");
+                    ok_count_after_brake = 0;
                 }
                 SafetyStatus::Ok => {
-                    if brake_applied {
-                        let release_result = tokio::task::spawn_blocking(|| {
-                            HardwareBridge::release_emergency_brake()
-                        })
-                        .await;
-                        match release_result {
-                            Ok(Ok(())) => brake_applied = false,
-                            Ok(Err(e)) => eprintln!("[relay] Brake release failed: {e}"),
-                            Err(e) => eprintln!("[relay] Brake release task panicked: {e}"),
+                    if brake_applied && !is_sim {
+                        // Require 3 consecutive Ok readings before releasing
+                        ok_count_after_brake += 1;
+                        if ok_count_after_brake >= 3 {
+                            let release_result = tokio::task::spawn_blocking(|| {
+                                HardwareBridge::release_emergency_brake()
+                            })
+                            .await;
+                            match release_result {
+                                Ok(Ok(())) => {
+                                    brake_applied = false;
+                                    ok_count_after_brake = 0;
+                                }
+                                Ok(Err(e)) => {
+                                    eprintln!("[relay] Brake release failed: {e}")
+                                }
+                                Err(e) => {
+                                    eprintln!("[relay] Brake release task panicked: {e}")
+                                }
+                            }
                         }
                     }
                 }

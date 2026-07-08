@@ -10,10 +10,10 @@
 //!
 //! ```text
 //!   ┌──────────────────────────────────────────────────┐
-//!   │  RTX 5080 Power Delivery Network                 │
+//!   │  GPU Power Delivery Network                      │
 //!   │                                                  │
 //!   │  12V_IN ──[VRM]──> VDDCR_GFX (GPU Core)         │
-//!   │                 └──> MEM_VDD  (GDDR7)            │
+//!   │                 └──> MEM_VDD  (VRAM)             │
 //!   │  1.8V_IO ────────> I/O Ring                      │
 //!   └──────────────────────────────────────────────────┘
 //! ```
@@ -171,18 +171,17 @@ impl HardwareBridge {
             .map(|u| u.memory as f32)
             .unwrap_or(0.0);
 
-        // NVIDIA blocks voltage.graphics on Blackwell (RTX 5080) at the driver level —
-        // neither NVML nor nvidia-smi can read it directly.
-        // Instead, derive Vcore from real-time power using the RTX 5080's known power-voltage curve:
-        //   Vcore range: ~0.70V (idle/150W) to ~1.05V (full load/360W TDP)
-        //   Formula: V = 0.70 + (P - 150) / (360 - 150) * 0.35
-        //   At 246W → ~0.86V | At 300W → ~0.99V | At 360W → ~1.05V
+        // NVML does not expose voltage.graphics on all architectures.
+        // Derive Vcore from real-time power using a generic linear model:
+        //   Vcore ≈ V_idle + (P - P_idle) / (P_tdp - P_idle) * (V_tdp - V_idle)
+        // Clamp to [V_idle, V_tdp] for safety.
+        // The actual idle/load values vary by GPU; these are typical for NVIDIA discrete GPUs.
         let vddcr_v = {
-            let idle_w = 150.0_f32;
-            let tdp_w = 360.0_f32;
+            let p_idle = 50.0_f32; // typical idle board power
+            let p_tdp = 300.0_f32; // generic high-end GPU TDP reference
             let v_idle = 0.70_f32;
             let v_tdp = 1.05_f32;
-            let t = ((power - idle_w) / (tdp_w - idle_w)).clamp(0.0, 1.0);
+            let t = ((power - p_idle) / (p_tdp - p_idle)).clamp(0.0, 1.0);
             v_idle + t * (v_tdp - v_idle)
         };
 
@@ -200,49 +199,66 @@ impl HardwareBridge {
 
     /// Check GPU safety thresholds against telemetry readings.
     /// Skips checks when no real GPU telemetry is available (simulated idle values).
-    pub fn check_safety(telemetry: &GpuTelemetry) -> SafetyStatus {
-        // Simulated idle: temp=0, power=25W, vddcr=0.7V — no real GPU present
-        if telemetry.gpu_temp_c <= 0.0 && telemetry.power_w <= 25.0 && telemetry.vddcr_gfx_v <= 0.7
-        {
-            return SafetyStatus::Ok;
+    /// Returns a (SafetyStatus, bool) where the bool indicates whether telemetry is simulated.
+    pub fn check_safety(telemetry: &GpuTelemetry) -> (SafetyStatus, bool) {
+        // Simulated idle: temp=0, power<=25W — no real GPU present
+        let is_simulated = telemetry.gpu_temp_c <= 0.0 && telemetry.power_w <= 25.0;
+        if is_simulated {
+            return (SafetyStatus::Ok, true);
         }
-        // Critical thresholds
+        // Critical thresholds (universal for NVIDIA GPUs)
         if telemetry.gpu_temp_c > 85.0 {
-            return SafetyStatus::Critical(format!(
-                "GPU thermal: {:.0}\u{00b0}C exceeds 85\u{00b0}C",
-                telemetry.gpu_temp_c
-            ));
+            return (
+                SafetyStatus::Critical(format!(
+                    "GPU thermal: {:.0}\u{00b0}C exceeds 85\u{00b0}C",
+                    telemetry.gpu_temp_c
+                )),
+                false,
+            );
         }
         if telemetry.power_w > 350.0 {
-            return SafetyStatus::Critical(format!(
-                "GPU power: {:.0}W exceeds 350W (TDP=360W)",
-                telemetry.power_w
-            ));
+            return (
+                SafetyStatus::Critical(format!(
+                    "GPU power: {:.0}W exceeds 350W safety limit",
+                    telemetry.power_w
+                )),
+                false,
+            );
         }
         // Warning thresholds
         if telemetry.gpu_temp_c > 75.0 {
-            return SafetyStatus::Warn(format!(
-                "GPU thermal: {:.0}\u{00b0}C approaching 85\u{00b0}C limit",
-                telemetry.gpu_temp_c
-            ));
+            return (
+                SafetyStatus::Warn(format!(
+                    "GPU thermal: {:.0}\u{00b0}C approaching 85\u{00b0}C limit",
+                    telemetry.gpu_temp_c
+                )),
+                false,
+            );
         }
         if telemetry.power_w > 300.0 {
-            return SafetyStatus::Warn(format!(
-                "GPU power: {:.0}W approaching 350W limit",
-                telemetry.power_w
-            ));
+            return (
+                SafetyStatus::Warn(format!(
+                    "GPU power: {:.0}W approaching safety limit",
+                    telemetry.power_w
+                )),
+                false,
+            );
         }
-        SafetyStatus::Ok
+        (SafetyStatus::Ok, false)
     }
 
     /// CLOSED LOOP CONTROL: The Emergency Brake.
+    /// Throttles GPU power to the given fraction of the device's current power limit.
     pub fn apply_emergency_brake(pct: f32) -> Result<(), String> {
-        let base_pl = 450; // RTX 5080 base TGP
-        let target_pl = (base_pl as f32 * pct.clamp(0.1, 1.0)) as u32;
+        // Query device's current power management limit via NVML
+        let current_limit = Self::query_power_limit_w().unwrap_or(300);
+        let target_pl = (current_limit as f32 * pct.clamp(0.1, 1.0)) as u32;
 
         println!(
-            "[hardware_bridge] EMERGENCY BRAKE: Setting PL to {}W",
-            target_pl
+            "[hardware_bridge] EMERGENCY BRAKE: Setting PL to {}W ({}% of {}W)",
+            target_pl,
+            (pct * 100.0) as u32,
+            current_limit
         );
 
         let status = std::process::Command::new("sudo")
@@ -257,16 +273,17 @@ impl HardwareBridge {
         Ok(())
     }
 
-    /// Release the emergency brake — restore GPU power limit to default.
+    /// Release the emergency brake — restore GPU power limit to its default.
     pub fn release_emergency_brake() -> Result<(), String> {
-        let base_pl = 450; // RTX 5080 base TGP
+        // Query device's default power management limit via NVML
+        let default_limit = Self::query_default_power_limit_w().unwrap_or(300);
         println!(
-            "[hardware_bridge] RELEASING BRAKE: Restoring PL to {}W",
-            base_pl
+            "[hardware_bridge] RELEASING BRAKE: Restoring PL to {}W (device default)",
+            default_limit
         );
 
         let status = std::process::Command::new("sudo")
-            .args(["nvidia-smi", "-pl", &base_pl.to_string()])
+            .args(["nvidia-smi", "-pl", &default_limit.to_string()])
             .status()
             .map_err(|e| format!("Failed to exec nvidia-smi: {}", e))?;
 
@@ -275,6 +292,22 @@ impl HardwareBridge {
         }
 
         Ok(())
+    }
+
+    /// Query the GPU's current power management limit in watts via NVML.
+    fn query_power_limit_w() -> Option<u32> {
+        let nvml = NVML.as_ref()?;
+        let device = nvml.device_by_index(0).ok()?;
+        let limit_mw = device.power_management_limit().ok()?;
+        Some(limit_mw / 1000)
+    }
+
+    /// Query the GPU's default (enforced) power management limit in watts via NVML.
+    fn query_default_power_limit_w() -> Option<u32> {
+        let nvml = NVML.as_ref()?;
+        let device = nvml.device_by_index(0).ok()?;
+        let limit_mw = device.power_management_limit_default().ok()?;
+        Some(limit_mw / 1000)
     }
 }
 
@@ -293,10 +326,11 @@ mod tests {
         let telem = GpuTelemetry {
             gpu_temp_c: 0.0,
             power_w: 25.0,
-            vddcr_gfx_v: 0.7,
             ..Default::default()
         };
-        assert_eq!(HardwareBridge::check_safety(&telem), SafetyStatus::Ok);
+        let (status, is_sim) = HardwareBridge::check_safety(&telem);
+        assert_eq!(status, SafetyStatus::Ok);
+        assert!(is_sim);
     }
 
     #[test]
@@ -304,13 +338,11 @@ mod tests {
         let telem = GpuTelemetry {
             gpu_temp_c: 78.0,
             power_w: 200.0,
-            vddcr_gfx_v: 0.9,
             ..Default::default()
         };
-        assert!(matches!(
-            HardwareBridge::check_safety(&telem),
-            SafetyStatus::Warn(_)
-        ));
+        let (status, is_sim) = HardwareBridge::check_safety(&telem);
+        assert!(matches!(status, SafetyStatus::Warn(_)));
+        assert!(!is_sim);
     }
 
     #[test]
@@ -318,13 +350,11 @@ mod tests {
         let telem = GpuTelemetry {
             gpu_temp_c: 70.0,
             power_w: 320.0,
-            vddcr_gfx_v: 0.9,
             ..Default::default()
         };
-        assert!(matches!(
-            HardwareBridge::check_safety(&telem),
-            SafetyStatus::Warn(_)
-        ));
+        let (status, is_sim) = HardwareBridge::check_safety(&telem);
+        assert!(matches!(status, SafetyStatus::Warn(_)));
+        assert!(!is_sim);
     }
 
     #[test]
@@ -332,13 +362,11 @@ mod tests {
         let telem = GpuTelemetry {
             gpu_temp_c: 90.0,
             power_w: 200.0,
-            vddcr_gfx_v: 0.9,
             ..Default::default()
         };
-        assert!(matches!(
-            HardwareBridge::check_safety(&telem),
-            SafetyStatus::Critical(_)
-        ));
+        let (status, is_sim) = HardwareBridge::check_safety(&telem);
+        assert!(matches!(status, SafetyStatus::Critical(_)));
+        assert!(!is_sim);
     }
 
     #[test]
@@ -346,12 +374,22 @@ mod tests {
         let telem = GpuTelemetry {
             gpu_temp_c: 70.0,
             power_w: 360.0,
-            vddcr_gfx_v: 1.0,
             ..Default::default()
         };
-        assert!(matches!(
-            HardwareBridge::check_safety(&telem),
-            SafetyStatus::Critical(_)
-        ));
+        let (status, is_sim) = HardwareBridge::check_safety(&telem);
+        assert!(matches!(status, SafetyStatus::Critical(_)));
+        assert!(!is_sim);
+    }
+
+    #[test]
+    fn test_safety_ok_on_normal_telemetry() {
+        let telem = GpuTelemetry {
+            gpu_temp_c: 65.0,
+            power_w: 200.0,
+            ..Default::default()
+        };
+        let (status, is_sim) = HardwareBridge::check_safety(&telem);
+        assert_eq!(status, SafetyStatus::Ok);
+        assert!(!is_sim);
     }
 }
