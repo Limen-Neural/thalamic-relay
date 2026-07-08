@@ -439,7 +439,7 @@ mod tests {
         let (relay, client, relay_addr) = setup_sockets();
         let mut stimuli = vec![0.0_f32; 4];
         let mut mods = NeuroModulators::default();
-        let before = mods.clone();
+        let before = mods;
 
         let msg = r#"{"type":"LearningReward","dopamine_delta":-0.5,"cortisol_delta":-0.3}"#;
         client.send_to(msg.as_bytes(), relay_addr).unwrap();
