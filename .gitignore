@@ -1,2 +1,10 @@
 target/
-.mimocode/.cron-lock
+
+# AI/IDE directories
+.mimocode/
+.codex/
+.kilo/
+.cursor/
+.zed/
+.vscode/
+.claude/
