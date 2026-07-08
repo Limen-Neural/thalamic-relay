@@ -1,0 +1,10 @@
+---
+exclude_paths:
+  - "AGENTS.md"
+  - ".mimocode/**"
+  - ".codex/**"
+  - ".kilo/**"
+  - ".cursor/**"
+  - ".zed/**"
+  - ".vscode/**"
+  - ".claude/**"
