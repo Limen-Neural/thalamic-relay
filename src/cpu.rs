@@ -73,3 +73,20 @@ pub async fn run_metrics_collector(metrics: Arc<Mutex<RelayMetrics>>) {
         sleep(Duration::from_secs(2)).await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relay_metrics_default_values() {
+        let m = RelayMetrics::default();
+        assert_eq!(m.spike_count, 0);
+        assert_eq!(m.stimulus_latency_ms, 0.0);
+        assert_eq!(m.telemetry_freshness_s, 0.0);
+        assert_eq!(m.dopamine, 0.0);
+        assert_eq!(m.cortisol, 0.0);
+        assert_eq!(m.acetylcholine, 0.0);
+        assert_eq!(m.stimuli_applied_count, 0);
+    }
+}

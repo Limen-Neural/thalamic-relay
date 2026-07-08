@@ -324,8 +324,9 @@ fn parse_nonzero_usize(s: &str) -> Result<usize, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::Cli;
+    use super::*;
     use clap::Parser;
+    use neuromod::NeuroModulators;
 
     #[test]
     fn parses_custom_args_and_env_equiv() {
@@ -356,5 +357,178 @@ mod tests {
         assert_eq!(cli.num_channels, 8);
         assert_eq!(cli.num_lif, 16); // default
         assert_eq!(cli.num_izh, 5); // default
+    }
+
+    /// Helper: bind a relay socket on a random port (non-blocking) and return
+    /// (relay_socket, client_socket, relay_addr).
+    fn setup_sockets() -> (
+        std::net::UdpSocket,
+        std::net::UdpSocket,
+        std::net::SocketAddr,
+    ) {
+        let relay = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        relay.set_nonblocking(true).unwrap();
+        let relay_addr = relay.local_addr().unwrap();
+        let client = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        (relay, client, relay_addr)
+    }
+
+    #[test]
+    fn stimuli_populates_and_clamps_values() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        // Send values that should be clamped: 5.0 → 1.0, -3.0 → -1.0, 0.5 → 0.5
+        let msg = r#"{"type":"Stimuli","values":[5.0, -3.0, 0.5, 0.1]}"#;
+        client.send_to(msg.as_bytes(), relay_addr).unwrap();
+        // Small delay so the kernel delivers the datagram
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(applied, "stimuli_applied should be true");
+        assert_eq!(stimuli[0], 1.0, "5.0 clamped to 1.0");
+        assert_eq!(stimuli[1], -1.0, "-3.0 clamped to -1.0");
+        assert_eq!(stimuli[2], 0.5);
+        assert_eq!(stimuli[3], 0.1);
+    }
+
+    #[test]
+    fn stimuli_truncates_when_values_exceed_channels() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 2]; // only 2 channels
+        let mut mods = NeuroModulators::default();
+
+        let msg = r#"{"type":"Stimuli","values":[1.0, 2.0, 3.0, 4.0]}"#;
+        client.send_to(msg.as_bytes(), relay_addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(applied);
+        assert_eq!(stimuli[0], 1.0);
+        assert_eq!(stimuli[1], 1.0); // 2.0 clamped to 1.0
+        // Extra values (3.0, 4.0) are ignored; vec stays length 2
+    }
+
+    #[test]
+    fn learning_reward_applies_positive_deltas() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        let msg = r#"{"type":"LearningReward","dopamine_delta":0.3,"cortisol_delta":0.2}"#;
+        client.send_to(msg.as_bytes(), relay_addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        // add_reward/add_stress add to existing (which defaults to some base).
+        // We just verify the deltas moved the values upward from default.
+        let default_mods = NeuroModulators::default();
+        assert!(
+            mods.dopamine > default_mods.dopamine,
+            "dopamine should increase"
+        );
+        assert!(
+            mods.cortisol > default_mods.cortisol,
+            "cortisol should increase"
+        );
+    }
+
+    #[test]
+    fn learning_reward_ignores_negative_deltas() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+        let before = mods.clone();
+
+        let msg = r#"{"type":"LearningReward","dopamine_delta":-0.5,"cortisol_delta":-0.3}"#;
+        client.send_to(msg.as_bytes(), relay_addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        // Negative deltas are clamped to 0 via .max(0.0), so no change
+        assert_eq!(mods.dopamine, before.dopamine);
+        assert_eq!(mods.cortisol, before.cortisol);
+    }
+
+    #[test]
+    fn get_neuro_state_responds_with_expected_fields() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        let msg = r#"{"type":"GetNeuroState"}"#;
+        client.send_to(msg.as_bytes(), relay_addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        process_udp_messages(&relay, &mut stimuli, &mut mods, 42);
+
+        // Read the response sent back to the client
+        let mut resp_buf = [0u8; 4096];
+        client.set_nonblocking(true).unwrap();
+        // Allow a moment for the response to arrive
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let amt = client
+            .recv(&mut resp_buf)
+            .expect("should receive GetNeuroState response");
+        let resp: serde_json::Value = serde_json::from_slice(&resp_buf[..amt]).unwrap();
+
+        assert!(
+            resp.get("dopamine").is_some(),
+            "response must have 'dopamine'"
+        );
+        assert!(
+            resp.get("cortisol").is_some(),
+            "response must have 'cortisol'"
+        );
+        assert!(
+            resp.get("acetylcholine").is_some(),
+            "response must have 'acetylcholine'"
+        );
+        assert!(
+            resp.get("lif_spike_count").is_some(),
+            "response must have 'lif_spike_count'"
+        );
+        assert_eq!(resp["lif_spike_count"].as_u64().unwrap(), 42);
+    }
+
+    #[test]
+    fn invalid_json_does_not_panic() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        // Send malformed JSON
+        client.send_to(b"not json at all", relay_addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        // Should not panic; just silently skip
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(!applied, "no valid stimuli should be applied");
+    }
+
+    #[test]
+    fn empty_json_does_not_panic() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        // Valid JSON but unknown type
+        client.send_to(b"{}", relay_addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(!applied);
+    }
+
+    #[test]
+    fn empty_udp_no_messages_returns_false() {
+        let (relay, _client, _relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        // No messages sent → socket is empty → should return false immediately
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(!applied);
     }
 }
