@@ -16,9 +16,10 @@ pulled from crates.io via `neuromod` in `Cargo.toml`; build with a plain
 
 ### Toolchain / system deps
 
-- Requires Rust edition 2024 (toolchain >= 1.85; stable is set as the rustup
-  default in this environment). `cargo`/`cargo build`/`cargo test`/`cargo clippy`
-  all work from `/workspace`.
+- Requires Rust edition 2024 (toolchain >= 1.87 for `u64::is_multiple_of` and
+  clippy lints used in CI; stable is set as the rustup default in this
+  environment). `cargo`/`cargo build`/`cargo test`/`cargo clippy` all work from
+  `/workspace`.
 - `pkg-config` may be used by native dependencies. `libudev-dev` is no longer
   required: the serial backend (`serialport`, via `silicon-bridge`) was removed,
   and `nvml-wrapper` (NVML — NVIDIA Management Library) loads `libnvidia-ml.so` at runtime without linking libudev.

@@ -201,7 +201,16 @@ impl HardwareBridge {
     /// Skips checks when no real GPU telemetry is available (simulated idle values).
     /// Returns a (SafetyStatus, bool) where the bool indicates whether telemetry is simulated.
     pub fn check_safety(telemetry: &GpuTelemetry) -> (SafetyStatus, bool) {
-        // Simulated idle: temp=0, power<=25W — no real GPU present
+        // Non-finite sensor values must not slip through as Ok (NaN comparisons are always false).
+        if !telemetry.gpu_temp_c.is_finite() || !telemetry.power_w.is_finite() {
+            return (
+                SafetyStatus::Critical("Invalid telemetry: non-finite values".into()),
+                false,
+            );
+        }
+        // Simulated idle: temp=0, power<=25W — no real GPU present.
+        // Known limitation: a real GPU reporting exactly 0°C with ≤25W idle would be
+        // misclassified as simulated; NVIDIA cards normally report ambient+ temps.
         let is_simulated = telemetry.gpu_temp_c <= 0.0 && telemetry.power_w <= 25.0;
         if is_simulated {
             return (SafetyStatus::Ok, true);
@@ -248,49 +257,84 @@ impl HardwareBridge {
     }
 
     /// CLOSED LOOP CONTROL: The Emergency Brake.
-    /// Throttles GPU power to the given fraction of the device's current power limit.
+    /// Throttles GPU power to the given fraction of the device's *default* power limit
+    /// (not the current limit) to avoid compounding throttle across restarts.
+    /// Fails closed if NVML cannot report a real limit — never invents a hardcoded wattage.
     pub fn apply_emergency_brake(pct: f32) -> Result<(), String> {
-        // Query device's current power management limit via NVML
-        let current_limit = Self::query_power_limit_w().unwrap_or(300);
-        let target_pl = (current_limit as f32 * pct.clamp(0.1, 1.0)) as u32;
+        // Prefer default PL as base so restarts cannot stack 50% on an already-braked limit.
+        let base_limit = Self::query_default_power_limit_w()
+            .or_else(Self::query_power_limit_w)
+            .ok_or_else(|| {
+                "Cannot query GPU power limit via NVML; refusing arbitrary fallback".to_string()
+            })?;
+        let pct = pct.clamp(0.1, 1.0);
+        let target_pl = (base_limit as f32 * pct) as u32;
 
-        println!(
-            "[hardware_bridge] EMERGENCY BRAKE: Setting PL to {}W ({}% of {}W)",
-            target_pl,
-            (pct * 100.0) as u32,
-            current_limit
-        );
-
-        let status = std::process::Command::new("sudo")
-            .args(["nvidia-smi", "-pl", &target_pl.to_string()])
-            .status()
-            .map_err(|e| format!("Failed to exec nvidia-smi: {}", e))?;
-
-        if !status.success() {
-            return Err("nvidia-smi (power limit) failed. Password required?".to_string());
+        // Already at or below target (e.g. leftover brake from a previous process).
+        if let Some(current) = Self::query_power_limit_w().filter(|&c| c <= target_pl) {
+            println!(
+                "[hardware_bridge] EMERGENCY BRAKE: already at or below target {target_pl}W (current {current}W)"
+            );
+            return Ok(());
         }
 
-        Ok(())
+        println!(
+            "[hardware_bridge] EMERGENCY BRAKE: Setting PL to {}W ({}% of {}W default)",
+            target_pl,
+            (pct * 100.0) as u32,
+            base_limit
+        );
+
+        Self::set_power_limit_w(target_pl)
     }
 
     /// Release the emergency brake — restore GPU power limit to its default.
+    /// Fails closed if the default cannot be queried (never restores a fabricated wattage).
     pub fn release_emergency_brake() -> Result<(), String> {
-        // Query device's default power management limit via NVML
-        let default_limit = Self::query_default_power_limit_w().unwrap_or(300);
+        let default_limit = Self::query_default_power_limit_w().ok_or_else(|| {
+            "Cannot query default power limit via NVML; refusing to restore an arbitrary value"
+                .to_string()
+        })?;
         println!(
             "[hardware_bridge] RELEASING BRAKE: Restoring PL to {}W (device default)",
             default_limit
         );
 
-        let status = std::process::Command::new("sudo")
-            .args(["nvidia-smi", "-pl", &default_limit.to_string()])
+        Self::set_power_limit_w(default_limit)
+    }
+
+    /// Returns `(current_w, default_w)` when both are known and current is below default
+    /// (possible leftover emergency brake from a previous process crash).
+    pub fn power_limit_below_default() -> Option<(u32, u32)> {
+        let current = Self::query_power_limit_w()?;
+        let default = Self::query_default_power_limit_w()?;
+        if current < default {
+            Some((current, default))
+        } else {
+            None
+        }
+    }
+
+    /// Set GPU power limit via `timeout` + non-interactive `sudo -n` so a password
+    /// prompt or wedged nvidia-smi cannot stall the relay loop indefinitely.
+    fn set_power_limit_w(limit_w: u32) -> Result<(), String> {
+        let status = std::process::Command::new("timeout")
+            .args([
+                "5s",
+                "sudo",
+                "-n",
+                "nvidia-smi",
+                "-pl",
+                &limit_w.to_string(),
+            ])
             .status()
-            .map_err(|e| format!("Failed to exec nvidia-smi: {}", e))?;
+            .map_err(|e| format!("Failed to exec nvidia-smi: {e}"))?;
 
         if !status.success() {
-            return Err("nvidia-smi (power limit restore) failed.".to_string());
+            return Err(format!(
+                "nvidia-smi -pl {limit_w} failed (timeout, missing passwordless sudo, or command error)"
+            ));
         }
-
         Ok(())
     }
 
@@ -390,6 +434,27 @@ mod tests {
         };
         let (status, is_sim) = HardwareBridge::check_safety(&telem);
         assert_eq!(status, SafetyStatus::Ok);
+        assert!(!is_sim);
+    }
+
+    #[test]
+    fn test_safety_critical_on_non_finite_telemetry() {
+        let telem = GpuTelemetry {
+            gpu_temp_c: f32::NAN,
+            power_w: 200.0,
+            ..Default::default()
+        };
+        let (status, is_sim) = HardwareBridge::check_safety(&telem);
+        assert!(matches!(status, SafetyStatus::Critical(_)));
+        assert!(!is_sim);
+
+        let telem_inf = GpuTelemetry {
+            gpu_temp_c: 70.0,
+            power_w: f32::INFINITY,
+            ..Default::default()
+        };
+        let (status, is_sim) = HardwareBridge::check_safety(&telem_inf);
+        assert!(matches!(status, SafetyStatus::Critical(_)));
         assert!(!is_sim);
     }
 }
