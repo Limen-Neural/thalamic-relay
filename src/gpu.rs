@@ -199,12 +199,8 @@ impl HardwareBridge {
     /// Skips checks when no real GPU telemetry is available (simulated idle values).
     /// Returns a (SafetyStatus, bool) where the bool indicates whether telemetry is simulated.
     pub fn check_safety(telemetry: &GpuTelemetry) -> (SafetyStatus, bool) {
-        // Non-finite sensor values must not slip through as Ok (NaN comparisons are always false).
-        if !telemetry.gpu_temp_c.is_finite() || !telemetry.power_w.is_finite() {
-            return (
-                SafetyStatus::Critical("Invalid telemetry: non-finite values".into()),
-                false,
-            );
+        if let Some(status) = Self::critical_from_telemetry(telemetry) {
+            return (status, false);
         }
         // Simulated idle: temp=0, power<=25W — no real GPU present.
         // Known limitation: a real GPU reporting exactly 0°C with ≤25W idle would be
@@ -213,45 +209,48 @@ impl HardwareBridge {
         if is_simulated {
             return (SafetyStatus::Ok, true);
         }
-        // Critical thresholds (universal for NVIDIA GPUs)
-        if telemetry.gpu_temp_c > 85.0 {
-            return (
-                SafetyStatus::Critical(format!(
-                    "GPU thermal: {:.0}\u{00b0}C exceeds 85\u{00b0}C",
-                    telemetry.gpu_temp_c
-                )),
-                false,
-            );
-        }
-        if telemetry.power_w > 350.0 {
-            return (
-                SafetyStatus::Critical(format!(
-                    "GPU power: {:.0}W exceeds 350W safety limit",
-                    telemetry.power_w
-                )),
-                false,
-            );
-        }
-        // Warning thresholds
-        if telemetry.gpu_temp_c > 75.0 {
-            return (
-                SafetyStatus::Warn(format!(
-                    "GPU thermal: {:.0}\u{00b0}C approaching 85\u{00b0}C limit",
-                    telemetry.gpu_temp_c
-                )),
-                false,
-            );
-        }
-        if telemetry.power_w > 300.0 {
-            return (
-                SafetyStatus::Warn(format!(
-                    "GPU power: {:.0}W approaching safety limit",
-                    telemetry.power_w
-                )),
-                false,
-            );
+        if let Some(status) = Self::warn_from_telemetry(telemetry) {
+            return (status, false);
         }
         (SafetyStatus::Ok, false)
+    }
+
+    fn critical_from_telemetry(telemetry: &GpuTelemetry) -> Option<SafetyStatus> {
+        // Non-finite sensor values must not slip through as Ok (NaN comparisons are always false).
+        if !telemetry.gpu_temp_c.is_finite() || !telemetry.power_w.is_finite() {
+            return Some(SafetyStatus::Critical(
+                "Invalid telemetry: non-finite values".into(),
+            ));
+        }
+        if telemetry.gpu_temp_c > 85.0 {
+            return Some(SafetyStatus::Critical(format!(
+                "GPU thermal: {:.0}°C exceeds 85°C",
+                telemetry.gpu_temp_c
+            )));
+        }
+        if telemetry.power_w > 350.0 {
+            return Some(SafetyStatus::Critical(format!(
+                "GPU power: {:.0}W exceeds 350W safety limit",
+                telemetry.power_w
+            )));
+        }
+        None
+    }
+
+    fn warn_from_telemetry(telemetry: &GpuTelemetry) -> Option<SafetyStatus> {
+        if telemetry.gpu_temp_c > 75.0 {
+            return Some(SafetyStatus::Warn(format!(
+                "GPU thermal: {:.0}°C approaching 85°C limit",
+                telemetry.gpu_temp_c
+            )));
+        }
+        if telemetry.power_w > 300.0 {
+            return Some(SafetyStatus::Warn(format!(
+                "GPU power: {:.0}W approaching safety limit",
+                telemetry.power_w
+            )));
+        }
+        None
     }
 
     /// CLOSED LOOP CONTROL: The Emergency Brake.
