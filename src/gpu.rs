@@ -147,11 +147,9 @@ impl HardwareBridge {
             .map(|t| t as f32 + 8.0)
             .unwrap_or(gpu_temp + 8.0);
 
-        let power_mw = device
-            .power_usage()
-            .ok()
-            .map(|p| p as f32)
-            .unwrap_or(25000.0);
+        // Fail closed: do not fabricate a safe-looking power reading for safety decisions.
+        // If power_usage is unavailable, drop out to the simulated fallback path instead.
+        let power_mw = device.power_usage().ok()? as f32;
         let power = power_mw / 1000.0;
 
         let gpu_clock = device
@@ -318,8 +316,11 @@ impl HardwareBridge {
     /// Set GPU power limit via `timeout` + non-interactive `sudo -n` so a password
     /// prompt or wedged nvidia-smi cannot stall the relay loop indefinitely.
     fn set_power_limit_w(limit_w: u32) -> Result<(), String> {
+        // -k 2: escalate SIGTERM -> SIGKILL so a wedged nvidia-smi cannot stall forever.
         let status = std::process::Command::new("timeout")
             .args([
+                "-k",
+                "2",
                 "5s",
                 "sudo",
                 "-n",

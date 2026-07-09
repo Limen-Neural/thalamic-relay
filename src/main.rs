@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stimuli_applied_count: u64 = 0;
     let mut brake_applied = false;
     let mut ok_count_after_brake: u32 = 0;
+    let mut warned_brake_held_sim = false;
 
     // Detect leftover throttle from a prior crash (hardware PL persists across process restarts).
     // Seed brake_applied so the hysteresis-gated release path can restore the default once
@@ -144,11 +145,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // Hold brake while real telemetry is unavailable; reset hysteresis
                             // so release requires 3 consecutive *real* Ok readings after recovery.
                             ok_count_after_brake = 0;
-                            eprintln!(
-                                "[relay] SAFETY: brake held — telemetry is simulated \
-                                 (no real GPU readings to confirm safe release)"
-                            );
+                            if !warned_brake_held_sim {
+                                eprintln!(
+                                    "[relay] SAFETY: brake held — telemetry is simulated (no real GPU readings to confirm safe release)"
+                                );
+                                warned_brake_held_sim = true;
+                            }
                         } else {
+                            warned_brake_held_sim = false;
                             // Require 3 consecutive real Ok safety-check readings before release
                             // (at default 100ms step × every 10 steps ≈ 3s hysteresis).
                             ok_count_after_brake += 1;
