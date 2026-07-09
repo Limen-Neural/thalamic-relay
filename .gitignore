@@ -1,1 +1,10 @@
 target/
+
+# AI/IDE directories
+.mimocode/
+.codex/
+.kilo/
+.cursor/
+.zed/
+.vscode/
+.claude/

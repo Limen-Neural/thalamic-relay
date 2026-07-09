@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use thalamic_relay::cpu::{self, RelayMetrics};
-use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge};
+use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge, SafetyStatus};
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -90,6 +90,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut latest_spike_count: usize = 0;
     let mut step_count: u64 = 0;
     let mut stimuli_applied_count: u64 = 0;
+    let mut brake_applied = false;
+    let mut ok_count_after_brake: u32 = 0;
+    let mut warned_brake_held_sim = false;
+
+    // Detect leftover throttle from a prior crash (hardware PL persists across process restarts).
+    // Seed brake_applied so the hysteresis-gated release path can restore the default once
+    // 3 consecutive real Ok readings confirm the GPU is healthy again.
+    if let Some((current_w, default_w)) = HardwareBridge::power_limit_below_default() {
+        eprintln!(
+            "[relay] WARNING: GPU power limit {current_w}W is below default {default_w}W \
+             (possible leftover emergency brake); will auto-release after Ok streak"
+        );
+        brake_applied = true;
+    }
 
     let udp_socket =
         std::net::UdpSocket::bind(cli.udp_addr).expect("FATAL: Failed to bind IPC socket");
@@ -101,6 +115,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         step_count += 1;
         let loop_start = Instant::now();
         let telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
+
+        // Safety check every 10 steps (rate scales with step_interval_ms)
+        if step_count.is_multiple_of(10) {
+            let (safety, is_sim) = HardwareBridge::check_safety(&telemetry);
+            match safety {
+                SafetyStatus::Critical(msg) => {
+                    eprintln!("[relay] SAFETY CRITICAL: {msg}");
+                    ok_count_after_brake = 0;
+                    if !brake_applied {
+                        let brake_result = tokio::task::spawn_blocking(|| {
+                            HardwareBridge::apply_emergency_brake(0.5)
+                        })
+                        .await;
+                        match brake_result {
+                            Ok(Ok(())) => brake_applied = true,
+                            Ok(Err(e)) => eprintln!("[relay] Emergency brake failed: {e}"),
+                            Err(e) => eprintln!("[relay] Brake task panicked: {e}"),
+                        }
+                    }
+                }
+                SafetyStatus::Warn(msg) => {
+                    eprintln!("[relay] SAFETY WARN: {msg}");
+                    ok_count_after_brake = 0;
+                }
+                SafetyStatus::Ok => {
+                    if brake_applied {
+                        if is_sim {
+                            // Hold brake while real telemetry is unavailable; reset hysteresis
+                            // so release requires 3 consecutive *real* Ok readings after recovery.
+                            ok_count_after_brake = 0;
+                            if !warned_brake_held_sim {
+                                eprintln!(
+                                    "[relay] SAFETY: brake held — telemetry is simulated (no real GPU readings to confirm safe release)"
+                                );
+                                warned_brake_held_sim = true;
+                            }
+                        } else {
+                            warned_brake_held_sim = false;
+                            // Require 3 consecutive real Ok safety-check readings before release
+                            // (at default 100ms step × every 10 steps ≈ 3s hysteresis).
+                            ok_count_after_brake += 1;
+                            if ok_count_after_brake >= 3 {
+                                let release_result = tokio::task::spawn_blocking(|| {
+                                    HardwareBridge::release_emergency_brake()
+                                })
+                                .await;
+                                match release_result {
+                                    Ok(Ok(())) => {
+                                        brake_applied = false;
+                                        ok_count_after_brake = 0;
+                                    }
+                                    Ok(Err(e)) => {
+                                        // Back off: require another full Ok streak before retry.
+                                        ok_count_after_brake = 0;
+                                        eprintln!("[relay] Brake release failed: {e}");
+                                    }
+                                    Err(e) => {
+                                        ok_count_after_brake = 0;
+                                        eprintln!("[relay] Brake release task panicked: {e}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         let stimuli_applied = process_udp_messages(
             &udp_socket,
