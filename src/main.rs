@@ -94,11 +94,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ok_count_after_brake: u32 = 0;
 
     // Detect leftover throttle from a prior crash (hardware PL persists across process restarts).
+    // Seed brake_applied so the hysteresis-gated release path can restore the default once
+    // 3 consecutive real Ok readings confirm the GPU is healthy again.
     if let Some((current_w, default_w)) = HardwareBridge::power_limit_below_default() {
         eprintln!(
             "[relay] WARNING: GPU power limit {current_w}W is below default {default_w}W \
-             (possible leftover emergency brake from a previous run)"
+             (possible leftover emergency brake); will auto-release after Ok streak"
         );
+        brake_applied = true;
     }
 
     let udp_socket =
