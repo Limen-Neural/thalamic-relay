@@ -148,9 +148,17 @@ impl HardwareBridge {
             .unwrap_or(gpu_temp + 8.0);
 
         // Fail closed: do not fabricate a safe-looking power reading for safety decisions.
-        // If power_usage is unavailable, drop out to the simulated fallback path instead.
-        let power_mw = device.power_usage().ok()? as f32;
-        let power = power_mw / 1000.0;
+        // Preserve any real temperature reading and mark power as invalid so check_safety()
+        // reports Critical instead of falling back to simulated Ok.
+        let Some(power_mw) = device.power_usage().ok() else {
+            return Some(GpuTelemetry {
+                gpu_temp_c: gpu_temp,
+                power_w: f32::NAN,
+                vram_temp_c: vram_temp,
+                ..Default::default()
+            });
+        };
+        let power = power_mw as f32 / 1000.0;
 
         let gpu_clock = device
             .clock_info(Clock::Graphics)
@@ -300,13 +308,16 @@ impl HardwareBridge {
         Self::set_power_limit_w(default_limit)
     }
 
-    /// Returns `(current_w, default_w)` when both are known and current is below default
-    /// (possible leftover emergency brake from a previous process crash).
-    pub fn power_limit_below_default() -> Option<(u32, u32)> {
+    /// Returns `(current_w, default_w, expected_brake_w)` only when both limits are known
+    /// and the current limit matches this relay's emergency-brake target. This avoids
+    /// treating an operator-configured sub-default cap as an app-owned brake to auto-release.
+    pub fn power_limit_matches_emergency_brake(pct: f32) -> Option<(u32, u32, u32)> {
         let current = Self::query_power_limit_w()?;
         let default = Self::query_default_power_limit_w()?;
-        if current < default {
-            Some((current, default))
+        let expected = (default as f32 * pct.clamp(0.1, 1.0)) as u32;
+        let tolerance_w = 2;
+        if current.abs_diff(expected) <= tolerance_w {
+            Some((current, default, expected))
         } else {
             None
         }
@@ -434,6 +445,18 @@ mod tests {
         };
         let (status, is_sim) = HardwareBridge::check_safety(&telem);
         assert_eq!(status, SafetyStatus::Ok);
+        assert!(!is_sim);
+    }
+
+    #[test]
+    fn test_safety_critical_on_unknown_power_with_real_temperature() {
+        let telem = GpuTelemetry {
+            gpu_temp_c: 35.0,
+            power_w: f32::NAN,
+            ..Default::default()
+        };
+        let (status, is_sim) = HardwareBridge::check_safety(&telem);
+        assert!(matches!(status, SafetyStatus::Critical(_)));
         assert!(!is_sim);
     }
 
