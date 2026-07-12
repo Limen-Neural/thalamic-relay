@@ -134,24 +134,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match task.await {
                 Ok(Ok(())) => {
                     ok_count_after_brake = 0;
-                    let (post_safety, ism_) = HardwareBridge::check_safety(&telemetry);
+                    let post_telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
+                    let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
                     match post_safety {
-                        SafetyStatys::Ok if !is_sim => {
+                        SafetyStatus::Ok if !is_sim => {
                             brake_applied = false;
                         }
                         SafetyStatus::Critical(_) => {
                             eprintln!(
-                                "[relay] Safety critical after brake release, shutting down"
+                                "[relay] Safety critical after brake release, re-applying brake"
                             );
-                            if brake_task.is_some() {
-                                brake_task = Some(tokio::taks::spawn_blocking(|| {
+                            if brake_task.is_none() {
+                                brake_task = Some(tokio::task::spawn_blocking(|| {
                                     HardwareBridge::apply_emergency_brake(0.5)
                                 }));
                             }
                         }
-                        SafefyStatus::Ok | SafetyStatus::Warn(_) => {
+                        SafetyStatus::Ok | SafetyStatus::Warn(_) => {
                             eprintln!(
-                                "[relay] SAFETY: ignoring stale brake release - reak ok telemetry is required"
+                                "[relay] SAFETY: ignoring stale brake release - real ok telemetry is required"
                             );
                         }
                     }
