@@ -129,7 +129,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // The GPU may have already recovered while the brake was being applied.
                     // Re-check current telemetry so a stale brake doesn't linger unnoticed
                     // until the next periodic safety check.
-                    let post_telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
+                    let post_telemetry =
+                        HardwareBridge::read_telemetry_force(cli.force_software_only);
                     let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
                     if matches!(post_safety, SafetyStatus::Ok) && !is_sim {
                         ok_count_after_brake = ok_count_after_brake.saturating_add(1);
@@ -151,12 +152,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match task.await {
                 Ok(Ok(())) => {
                     ok_count_after_brake = 0;
-                    let post_telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
+                    let post_telemetry =
+                        HardwareBridge::read_telemetry_force(cli.force_software_only);
                     let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
+                    // The physical brake has already been released; reflect that in
+                    // brake_applied regardless of post-release telemetry so state stays
+                    // consistent with reality. Hysteresis (ok_count_after_brake) already
+                    // gated the release, so this doesn't weaken safety.
+                    brake_applied = false;
                     match post_safety {
-                        SafetyStatus::Ok if !is_sim => {
-                            brake_applied = false;
-                        }
                         SafetyStatus::Critical(_) => {
                             eprintln!(
                                 "[relay] Safety critical after brake release, re-applying brake"
@@ -167,11 +171,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }));
                             }
                         }
-                        SafetyStatus::Ok | SafetyStatus::Warn(_) => {
+                        SafetyStatus::Ok if is_sim => {
                             eprintln!(
-                                "[relay] SAFETY: ignoring stale brake release - real ok telemetry is required"
+                                "[relay] SAFETY: brake released but post-release telemetry is simulated"
                             );
                         }
+                        SafetyStatus::Ok | SafetyStatus::Warn(_) => {}
                     }
                 }
                 Ok(Err(e)) => {
