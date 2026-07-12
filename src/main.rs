@@ -124,7 +124,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if brake_task.as_ref().is_some_and(|task| task.is_finished()) {
             let task = brake_task.take().expect("finished brake task exists");
             match task.await {
-                Ok(Ok(())) => brake_applied = true,
+                Ok(Ok(())) => {
+                    brake_applied = true;
+                    // The GPU may have already recovered while the brake was being applied.
+                    // Re-check current telemetry so a stale brake doesn't linger unnoticed
+                    // until the next periodic safety check.
+                    let post_telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
+                    let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
+                    if matches!(post_safety, SafetyStatus::Ok) && !is_sim {
+                        ok_count_after_brake = ok_count_after_brake.saturating_add(1);
+                        if ok_count_after_brake >= 3 && release_task.is_none() {
+                            release_task = Some(tokio::task::spawn_blocking(|| {
+                                HardwareBridge::release_emergency_brake()
+                            }));
+                        }
+                    } else {
+                        ok_count_after_brake = 0;
+                    }
+                }
                 Ok(Err(e)) => eprintln!("[relay] Emergency brake failed: {e}"),
                 Err(e) => eprintln!("[relay] Brake task panicked: {e}"),
             }
