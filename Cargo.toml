@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Lightweight CLI relay that observes telemetry and forwards normalized stimuli to SNN (software-only, no built-in FPGA bridge)."
 license = "MIT OR Apache-2.0"
+rust-version = "1.97"
 
 [dependencies]
 # Core Logic
