@@ -662,17 +662,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "neuromod"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57857a0e94ca04d0b121bc464ebf1e5829f9b32dc2d6e56606ca1f4cc0564ce1"
-dependencies = [
- "rand",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1099,7 +1088,6 @@ dependencies = [
  "lazy_static",
  "metrics",
  "metrics-exporter-prometheus",
- "neuromod",
  "nvml-wrapper",
  "serde",
  "serde_json",
