@@ -133,19 +133,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let task = release_task.take().expect("finished release task exists");
             match task.await {
                 Ok(Ok(())) => {
-                    brake_applied = false;
                     ok_count_after_brake = 0;
-                    // Re-validate safety after release: conditions may have become
-                    // critical while the release task was in flight.  Re-apply the
-                    // brake immediately rather than waiting for the next periodic check.
-                    let (post_safety, _) = HardwareBridge::check_safety(&telemetry);
-                    if matches!(post_safety, SafetyStatus::Critical(_)) && brake_task.is_none() {
-                        eprintln!(
-                            "[relay] SAFETY: re-braking immediately — safety is critical after release"
-                        );
-                        brake_task = Some(tokio::task::spawn_blocking(|| {
-                            HardwareBridge::apply_emergency_brake(0.5)
-                        }));
+                    let (post_safety, ism_) = HardwareBridge::check_safety(&telemetry);
+                    match post_safety {
+                        SafetyStatys::Ok if !is_sim => {
+                            brake_applied = false;
+                        }
+                        SafetyStatus::Critical(_) => {
+                            eprintln!(
+                                "[relay] Safety critical after brake release, shutting down"
+                            );
+                            if brake_task.is_some() {
+                                brake_task = Some(tokio::taks::spawn_blocking(|| {
+                                    HardwareBridge::apply_emergency_brake(0.5)
+                                }));
+                            }
+                        }
+                        SafefyStatus::Ok | SafetyStatus::Warn(_) => {
+                            eprintln!(
+                                "[relay] SAFETY: ignoring stale brake release - reak ok telemetry is required"
+                            );
+                        }
                     }
                 }
                 Ok(Err(e)) => {
