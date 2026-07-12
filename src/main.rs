@@ -121,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let loop_start = Instant::now();
         let telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
 
+        let mut ok_count_updated_this_iter = false;
         if brake_task.as_ref().is_some_and(|task| task.is_finished()) {
             let task = brake_task.take().expect("finished brake task exists");
             match task.await {
@@ -129,8 +130,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // The GPU may have already recovered while the brake was being applied.
                     // Re-check current telemetry so a stale brake doesn't linger unnoticed
                     // until the next periodic safety check.
-                    let post_telemetry =
-                        HardwareBridge::read_telemetry_force(cli.force_software_only);
+                    let force_software_only = cli.force_software_only;
+                    let post_telemetry = tokio::task::spawn_blocking(move || {
+                        HardwareBridge::read_telemetry_force(force_software_only)
+                    })
+                    .await
+                    .expect("post-brake telemetry read task panicked");
                     let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
                     if matches!(post_safety, SafetyStatus::Ok) && !is_sim {
                         ok_count_after_brake = ok_count_after_brake.saturating_add(1);
@@ -142,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         ok_count_after_brake = 0;
                     }
+                    ok_count_updated_this_iter = true;
                 }
                 Ok(Err(e)) => eprintln!("[relay] Emergency brake failed: {e}"),
                 Err(e) => eprintln!("[relay] Brake task panicked: {e}"),
@@ -219,7 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 );
                                 warned_brake_held_sim = true;
                             }
-                        } else {
+                        } else if !ok_count_updated_this_iter {
                             warned_brake_held_sim = false;
                             // Require 3 consecutive real Ok safety-check readings before release
                             // (at default 100ms step × every 10 steps ≈ 3s hysteresis).
