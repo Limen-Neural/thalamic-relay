@@ -8,4 +8,5 @@ target/
 .zed/
 .vscode/
 .claude/
+.opencode/
 .swarm/
