@@ -65,6 +65,7 @@ cargo run -- --step-interval-ms 50           # faster stepping
 ## CI Checks
 
 The CI workflow (`.github/workflows/ci.yml`) runs on Rust 1.97 stable:
+
 1. `cargo fmt --check`
 2. `cargo clippy --all-targets --all-features -- -D warnings`
 3. `cargo build --all-features`
