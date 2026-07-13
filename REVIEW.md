@@ -71,4 +71,4 @@ The CI workflow (`.github/workflows/ci.yml`) runs on Rust 1.97 stable:
 3. `cargo build --all-features`
 4. `cargo test --all-features`
 
-Bot reviewers: Codacy, CodeRabbit, Kilo, Devin, Gitar, Cursor Bugbot.
+Bot reviewers: Codacy, CodeRabbit, Codex, Kilo, Devin, Gitar, Cursor Bugbot.

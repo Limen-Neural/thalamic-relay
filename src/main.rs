@@ -167,11 +167,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
                     match post_safety {
                         SafetyStatus::Critical(_) => {
-                            // Telemetry went critical while brake was releasing —
-                            // keep brake_applied = true and re-apply immediately.
+                            // Release already restored the default power limit; clear the
+                            // brake flag before re-applying so a failed re-apply can be retried.
                             eprintln!(
                                 "[relay] Safety critical after brake release, re-applying brake"
                             );
+                            brake_applied = false;
                             if brake_task.is_none() {
                                 brake_task = Some(tokio::task::spawn_blocking(|| {
                                     HardwareBridge::apply_emergency_brake(0.5)
@@ -187,11 +188,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         }
                         SafetyStatus::Warn(_) => {
-                            // Post-release telemetry shows warning band — re-apply brake
-                            // to preserve hysteresis (same as normal braked path).
+                            // Release already restored the default power limit; clear the
+                            // brake flag before re-applying so a failed re-apply can be retried.
                             eprintln!(
                                 "[relay] Safety warning after brake release, re-applying brake"
                             );
+                            brake_applied = false;
                             if brake_task.is_none() {
                                 brake_task = Some(tokio::task::spawn_blocking(|| {
                                     HardwareBridge::apply_emergency_brake(0.5)
