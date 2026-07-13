@@ -158,8 +158,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match task.await {
                 Ok(Ok(())) => {
                     ok_count_after_brake = 0;
-                    let post_telemetry =
-                        HardwareBridge::read_telemetry_force(cli.force_software_only);
+                    let force_software_only = cli.force_software_only;
+                    let post_telemetry = tokio::task::spawn_blocking(move || {
+                        HardwareBridge::read_telemetry_force(force_software_only)
+                    })
+                    .await
+                    .expect("post-release telemetry read task panicked");
                     let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
                     // The physical brake has already been released; reflect that in
                     // brake_applied regardless of post-release telemetry so state stays
