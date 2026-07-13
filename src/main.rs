@@ -165,13 +165,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .await
                     .expect("post-release telemetry read task panicked");
                     let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
-                    // The physical brake has already been released; reflect that in
-                    // brake_applied regardless of post-release telemetry so state stays
-                    // consistent with reality. Hysteresis (ok_count_after_brake) already
-                    // gated the release, so this doesn't weaken safety.
-                    brake_applied = false;
                     match post_safety {
                         SafetyStatus::Critical(_) => {
+                            // Telemetry went critical while brake was releasing —
+                            // keep brake_applied = true and re-apply immediately.
                             eprintln!(
                                 "[relay] Safety critical after brake release, re-applying brake"
                             );
@@ -182,11 +179,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         SafetyStatus::Ok if is_sim => {
+                            // Physical brake was released; can't confirm safe state
+                            // with simulated telemetry. Mark released but log the gap.
+                            brake_applied = false;
                             eprintln!(
                                 "[relay] SAFETY: brake released but post-release telemetry is simulated"
                             );
                         }
-                        SafetyStatus::Ok | SafetyStatus::Warn(_) => {}
+                        SafetyStatus::Ok | SafetyStatus::Warn(_) => {
+                            // Post-release telemetry confirms safe state — clear brake flag.
+                            brake_applied = false;
+                        }
                     }
                 }
                 Ok(Err(e)) => {
