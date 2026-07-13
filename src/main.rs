@@ -249,7 +249,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // Require 3 consecutive real Ok safety-check readings before release
                             // (at default 100ms step × every 10 steps ≈ 3s hysteresis).
                             ok_count_after_brake += 1;
-                            if ok_count_after_brake >= 3 && release_task.is_none() {
+                            if ok_count_after_brake >= 3
+                                && release_task.is_none()
+                                && brake_task.is_none()
+                            {
                                 release_task = Some(tokio::task::spawn_blocking(|| {
                                     HardwareBridge::release_emergency_brake()
                                 }));
