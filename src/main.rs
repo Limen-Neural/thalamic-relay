@@ -186,7 +186,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 "[relay] SAFETY: brake released but post-release telemetry is simulated"
                             );
                         }
-                        SafetyStatus::Ok | SafetyStatus::Warn(_) => {
+                        SafetyStatus::Warn(_) => {
+                            // Post-release telemetry shows warning band — re-apply brake
+                            // to preserve hysteresis (same as normal braked path).
+                            eprintln!(
+                                "[relay] Safety warning after brake release, re-applying brake"
+                            );
+                            if brake_task.is_none() {
+                                brake_task = Some(tokio::task::spawn_blocking(|| {
+                                    HardwareBridge::apply_emergency_brake(0.5)
+                                }));
+                            }
+                        }
+                        SafetyStatus::Ok => {
                             // Post-release telemetry confirms safe state — clear brake flag.
                             brake_applied = false;
                         }
