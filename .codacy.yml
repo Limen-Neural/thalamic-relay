@@ -1,6 +1,7 @@
 ---
 exclude_paths:
   - "AGENTS.md"
+  - "REVIEW.md"
   - ".mimocode/**"
   - ".codex/**"
   - ".kilo/**"
