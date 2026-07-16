@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use thalamic_relay::cpu::{self, RelayMetrics};
 use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge, SafetyStatus};
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -93,14 +94,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut brake_applied = false;
     let mut ok_count_after_brake: u32 = 0;
     let mut warned_brake_held_sim = false;
+    let mut brake_task: Option<JoinHandle<Result<(), String>>> = None;
+    let mut release_task: Option<JoinHandle<Result<(), String>>> = None;
 
     // Detect leftover throttle from a prior crash (hardware PL persists across process restarts).
-    // Seed brake_applied so the hysteresis-gated release path can restore the default once
-    // 3 consecutive real Ok readings confirm the GPU is healthy again.
-    if let Some((current_w, default_w)) = HardwareBridge::power_limit_below_default() {
+    // Only seed brake_applied when the current limit matches this relay's expected 50% brake
+    // target, so deliberate operator-set sub-default caps are not auto-restored to default.
+    if let Some((current_w, default_w, expected_w)) =
+        HardwareBridge::power_limit_matches_emergency_brake(0.5)
+    {
         eprintln!(
-            "[relay] WARNING: GPU power limit {current_w}W is below default {default_w}W \
-             (possible leftover emergency brake); will auto-release after Ok streak"
+            "[relay] WARNING: GPU power limit {current_w}W matches expected emergency brake \
+             target {expected_w}W (default {default_w}W); will auto-release after Ok streak"
         );
         brake_applied = true;
     }
@@ -116,6 +121,102 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let loop_start = Instant::now();
         let telemetry = HardwareBridge::read_telemetry_force(cli.force_software_only);
 
+        let mut ok_count_updated_this_iter = false;
+        if brake_task.as_ref().is_some_and(|task| task.is_finished()) {
+            let task = brake_task.take().expect("finished brake task exists");
+            match task.await {
+                Ok(Ok(())) => {
+                    brake_applied = true;
+                    // The GPU may have already recovered while the brake was being applied.
+                    // Re-check current telemetry so a stale brake doesn't linger unnoticed
+                    // until the next periodic safety check.
+                    let force_software_only = cli.force_software_only;
+                    let post_telemetry = tokio::task::spawn_blocking(move || {
+                        HardwareBridge::read_telemetry_force(force_software_only)
+                    })
+                    .await
+                    .expect("post-brake telemetry read task panicked");
+                    let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
+                    if matches!(post_safety, SafetyStatus::Ok) && !is_sim {
+                        ok_count_after_brake = ok_count_after_brake.saturating_add(1);
+                        if ok_count_after_brake >= 3 && release_task.is_none() {
+                            release_task = Some(tokio::task::spawn_blocking(|| {
+                                HardwareBridge::release_emergency_brake()
+                            }));
+                        }
+                    } else {
+                        ok_count_after_brake = 0;
+                    }
+                    ok_count_updated_this_iter = true;
+                }
+                Ok(Err(e)) => eprintln!("[relay] Emergency brake failed: {e}"),
+                Err(e) => eprintln!("[relay] Brake task panicked: {e}"),
+            }
+        }
+        if release_task.as_ref().is_some_and(|task| task.is_finished()) {
+            let task = release_task.take().expect("finished release task exists");
+            match task.await {
+                Ok(Ok(())) => {
+                    ok_count_after_brake = 0;
+                    let force_software_only = cli.force_software_only;
+                    let post_telemetry = tokio::task::spawn_blocking(move || {
+                        HardwareBridge::read_telemetry_force(force_software_only)
+                    })
+                    .await
+                    .expect("post-release telemetry read task panicked");
+                    let (post_safety, is_sim) = HardwareBridge::check_safety(&post_telemetry);
+                    match post_safety {
+                        SafetyStatus::Critical(_) => {
+                            // Release already restored the default power limit; clear the
+                            // brake flag before re-applying so a failed re-apply can be retried.
+                            eprintln!(
+                                "[relay] Safety critical after brake release, re-applying brake"
+                            );
+                            brake_applied = false;
+                            if brake_task.is_none() {
+                                brake_task = Some(tokio::task::spawn_blocking(|| {
+                                    HardwareBridge::apply_emergency_brake(0.5)
+                                }));
+                            }
+                        }
+                        SafetyStatus::Ok if is_sim => {
+                            // Physical brake was released; can't confirm safe state
+                            // with simulated telemetry. Mark released but log the gap.
+                            brake_applied = false;
+                            eprintln!(
+                                "[relay] SAFETY: brake released but post-release telemetry is simulated"
+                            );
+                        }
+                        SafetyStatus::Warn(_) => {
+                            // Release already restored the default power limit; clear the
+                            // brake flag before re-applying so a failed re-apply can be retried.
+                            eprintln!(
+                                "[relay] Safety warning after brake release, re-applying brake"
+                            );
+                            brake_applied = false;
+                            if brake_task.is_none() {
+                                brake_task = Some(tokio::task::spawn_blocking(|| {
+                                    HardwareBridge::apply_emergency_brake(0.5)
+                                }));
+                            }
+                        }
+                        SafetyStatus::Ok => {
+                            // Post-release telemetry confirms safe state — clear brake flag.
+                            brake_applied = false;
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    ok_count_after_brake = 0;
+                    eprintln!("[relay] Brake release failed: {e}");
+                }
+                Err(e) => {
+                    ok_count_after_brake = 0;
+                    eprintln!("[relay] Brake release task panicked: {e}");
+                }
+            }
+        }
+
         // Safety check every 10 steps (rate scales with step_interval_ms)
         if step_count.is_multiple_of(10) {
             let (safety, is_sim) = HardwareBridge::check_safety(&telemetry);
@@ -123,16 +224,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 SafetyStatus::Critical(msg) => {
                     eprintln!("[relay] SAFETY CRITICAL: {msg}");
                     ok_count_after_brake = 0;
-                    if !brake_applied {
-                        let brake_result = tokio::task::spawn_blocking(|| {
+                    if !brake_applied && brake_task.is_none() {
+                        brake_task = Some(tokio::task::spawn_blocking(|| {
                             HardwareBridge::apply_emergency_brake(0.5)
-                        })
-                        .await;
-                        match brake_result {
-                            Ok(Ok(())) => brake_applied = true,
-                            Ok(Err(e)) => eprintln!("[relay] Emergency brake failed: {e}"),
-                            Err(e) => eprintln!("[relay] Brake task panicked: {e}"),
-                        }
+                        }));
                     }
                 }
                 SafetyStatus::Warn(msg) => {
@@ -151,31 +246,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 );
                                 warned_brake_held_sim = true;
                             }
-                        } else {
+                        } else if !ok_count_updated_this_iter {
                             warned_brake_held_sim = false;
                             // Require 3 consecutive real Ok safety-check readings before release
                             // (at default 100ms step × every 10 steps ≈ 3s hysteresis).
                             ok_count_after_brake += 1;
-                            if ok_count_after_brake >= 3 {
-                                let release_result = tokio::task::spawn_blocking(|| {
+                            if ok_count_after_brake >= 3
+                                && release_task.is_none()
+                                && brake_task.is_none()
+                            {
+                                release_task = Some(tokio::task::spawn_blocking(|| {
                                     HardwareBridge::release_emergency_brake()
-                                })
-                                .await;
-                                match release_result {
-                                    Ok(Ok(())) => {
-                                        brake_applied = false;
-                                        ok_count_after_brake = 0;
-                                    }
-                                    Ok(Err(e)) => {
-                                        // Back off: require another full Ok streak before retry.
-                                        ok_count_after_brake = 0;
-                                        eprintln!("[relay] Brake release failed: {e}");
-                                    }
-                                    Err(e) => {
-                                        ok_count_after_brake = 0;
-                                        eprintln!("[relay] Brake release task panicked: {e}");
-                                    }
-                                }
+                                }));
                             }
                         }
                     }
