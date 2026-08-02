@@ -29,7 +29,7 @@ is present.
 
 ### Prerequisites
 
-- Rust 2024 edition (toolchain >= 1.85)
+- Rust 2024 edition (MSRV 1.97.1)
 - `pkg-config` (used by some native dependencies)
 - Linux operating system (tested on Linux)
 - Optional: an NVIDIA GPU with NVML support

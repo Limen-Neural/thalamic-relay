@@ -16,8 +16,8 @@ pulled from crates.io via `neuromod` in `Cargo.toml`; build with a plain
 
 ### Toolchain / system deps
 
-- Requires Rust edition 2024 (toolchain >= 1.87 for `u64::is_multiple_of` and
-  clippy lints used in CI; stable is set as the rustup default in this
+- Requires Rust edition 2024 with MSRV 1.97.1 (toolchain >= 1.97.1; `u64::is_multiple_of` and
+  clippy lints are used in CI; stable is set as the rustup default in this
   environment). `cargo`/`cargo build`/`cargo test`/`cargo clippy` all work from
   `/workspace`.
 - `pkg-config` may be used by native dependencies. `libudev-dev` is no longer
