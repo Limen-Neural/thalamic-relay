@@ -37,6 +37,21 @@ cargo test learning_reward    # learning reward tests
 | main.rs | `empty_json_does_not_panic` | Empty/unknown type handled |
 | main.rs | `empty_udp_no_messages_returns_false` | No messages → returns false |
 
+## Coverage update (RM-342)
+
+### Gaps closed
+
+- Software-only GPU telemetry fallback (`HardwareBridge::read_telemetry_force(true)`, `GpuTelemetry::to_rails`, `is_gpu_healthy` no-panic).
+- Single-instance lockfile lifecycle (`try_acquire_lock`, active PID rejection, stale lock reclamation, create/remove behavior).
+- UDP IPC error paths (malformed UTF-8, missing or non-array `values`, unknown type, invalid `LearningReward` deltas, multiple-message ordering).
+- CLI edge cases (`--force-software-only=false`, zero/invalid `num-channels`, defaults, `parse_nonzero_usize`).
+
+### Gaps explicitly deferred
+
+- `cpu::init_telemetry` / `cpu::run_metrics_collector`: bind a network port and run an indefinite loop; not safely unit-testable without an integration harness.
+- `HardwareBridge::apply_emergency_brake` / `release_emergency_brake` / `power_limit_matches_emergency_brake`: require a real NVML-capable GPU and can mutate board power limits, so they are intentionally not exercised in software-only CI.
+- The `main` async supervisor loop and `print_dashboard`: covered by manual run instructions and end-to-end smoke tests rather than unit tests.
+
 ## Linting
 
 ```bash

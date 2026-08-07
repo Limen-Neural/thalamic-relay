@@ -480,4 +480,35 @@ mod tests {
         assert!(matches!(status, SafetyStatus::Critical(_)));
         assert!(!is_sim);
     }
+
+    #[test]
+    fn test_telemetry_to_rails() {
+        let telem = GpuTelemetry {
+            vddcr_gfx_v: 0.85,
+            ..Default::default()
+        };
+        let rails = telem.to_rails();
+        assert_eq!(rails.len(), 1);
+        assert_eq!(rails[0].0, "VDDCR_GFX");
+        assert_eq!(rails[0].1, 0.85);
+    }
+
+    #[test]
+    fn test_read_telemetry_force_software_only() {
+        let telem = HardwareBridge::read_telemetry_force(true);
+        assert!(telem.power_w.is_finite());
+        assert_eq!(telem.power_w, 25.0);
+        assert_eq!(telem.vddcr_gfx_v, 0.7);
+        assert_eq!(telem.gpu_clock_mhz, 210.0);
+        assert_eq!(telem.mem_clock_mhz, 405.0);
+        assert_eq!(telem.fan_speed_pct, 30.0);
+        assert_eq!(telem.mem_util_pct, 0.0);
+        assert_eq!(telem.gpu_temp_c, 0.0);
+    }
+
+    #[test]
+    fn test_is_gpu_healthy_does_not_panic() {
+        let result = std::panic::catch_unwind(HardwareBridge::is_gpu_healthy);
+        assert!(result.is_ok(), "is_gpu_healthy should not panic");
+    }
 }
