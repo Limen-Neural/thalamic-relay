@@ -141,6 +141,31 @@ at your option.
 Contributions are welcome! Please ensure all submissions follow the project's
 coding standards and include appropriate tests.
 
+## Releasing
+
+This crate is not yet published to crates.io (that is planned for v1.0; see #29).
+To cut a tag and GitHub Release for a `0.1.x` patch:
+
+1. Make sure `CHANGELOG.md` is up to date and the version in `Cargo.toml` matches the intended release.
+2. Run the validation suite locally:
+   ```bash
+   cargo fmt --check
+   cargo clippy --all-targets --all-features -- -D warnings
+   cargo test --all-features
+   cargo build --release
+   ```
+3. Create an annotated tag from a clean `main` branch and push it:
+   ```bash
+   git checkout main
+   git pull origin main
+   git tag -a v0.1.0 -m "Release v0.1.0"
+   git push origin v0.1.0
+   ```
+4. On GitHub, create a Release from the new tag and paste the relevant `CHANGELOG.md` section into the release notes.
+5. Optionally attach the `cargo build --release` binary.
+
+For a hotfix, bump the patch version in `Cargo.toml` (e.g. `0.1.1`) and use the same tag pattern (`v0.1.1`).
+
 ## Troubleshooting
 
 ### Common Issues
