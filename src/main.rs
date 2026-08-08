@@ -8,21 +8,16 @@ use thalamic_relay::gpu::{GpuTelemetry, HardwareBridge, SafetyStatus};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
-
-    struct LockGuard(String);
-    impl Drop for LockGuard {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.0);
-        }
+#[derive(Debug)]
+struct LockGuard(String);
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
+}
 
-    // Acquire the single-instance lock atomically BEFORE binding any ports.
-    // This ensures the clean "Another instance is already active" message
-    // appears instead of a Prometheus bind panic when two instances race.
-    let lock_path = "/tmp/thalamic_relay.lock";
+/// Acquire the single-instance lock file, reclaiming it only when the recorded PID is dead.
+fn try_acquire_lock(lock_path: &str) -> Result<LockGuard, String> {
     loop {
         match std::fs::OpenOptions::new()
             .write(true)
@@ -30,8 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .open(lock_path)
         {
             Ok(mut file) => {
-                writeln!(file, "{}", std::process::id())?;
-                break;
+                if let Err(e) = writeln!(file, "{}", std::process::id()) {
+                    return Err(format!("Failed to write PID to lock file {lock_path}: {e}"));
+                }
+                return Ok(LockGuard(lock_path.to_string()));
             }
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
                 // A lock exists. Reclaim it ONLY when we can positively confirm
@@ -42,32 +39,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok()
                     .and_then(|content| content.trim().parse::<u32>().ok())
                 else {
-                    eprintln!(
-                        "[relay] FATAL: Lock file {lock_path} exists but is unreadable/unparseable; refusing to start."
-                    );
-                    std::process::exit(1);
+                    return Err(format!(
+                        "Lock file {lock_path} exists but is unreadable/unparseable; refusing to start."
+                    ));
                 };
 
                 if std::path::Path::new(&format!("/proc/{recorded_pid}")).exists() {
-                    eprintln!(
-                        "[relay] FATAL: Another instance is already active (PID: {recorded_pid})."
-                    );
-                    std::process::exit(1);
+                    return Err(format!(
+                        "Another instance is already active (PID: {recorded_pid})."
+                    ));
                 }
 
                 // Stale lock from a dead PID: remove it and retry. If removal
                 // fails, abort instead of spinning in a tight retry loop.
                 if let Err(remove_err) = std::fs::remove_file(lock_path) {
-                    eprintln!(
-                        "[relay] FATAL: Failed to clear stale lock {lock_path}: {remove_err}"
-                    );
-                    std::process::exit(1);
+                    return Err(format!(
+                        "Failed to clear stale lock {lock_path}: {remove_err}"
+                    ));
                 }
             }
-            Err(err) => return Err(err.into()),
+            Err(err) => return Err(format!("Failed to create lock file {lock_path}: {err}")),
         }
     }
-    let _lock_guard = LockGuard(lock_path.to_string());
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+
+    // Acquire the single-instance lock atomically BEFORE binding any ports.
+    // This ensures the clean "Another instance is already active" message
+    // appears instead of a Prometheus bind panic when two instances race.
+    let lock_path = "/tmp/thalamic_relay.lock";
+    let _lock_guard = match try_acquire_lock(lock_path) {
+        Ok(guard) => guard,
+        Err(msg) => {
+            eprintln!("[relay] FATAL: {msg}");
+            std::process::exit(1);
+        }
+    };
 
     let metrics_addr = std::net::SocketAddr::new(cli.metrics_ip, 9000);
     cpu::init_telemetry(metrics_addr);
@@ -612,5 +622,173 @@ mod tests {
         // No messages sent → socket is empty → should return false immediately
         let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
         assert!(!applied);
+    }
+
+    #[test]
+    fn parses_defaults() {
+        let cli = Cli::try_parse_from(["thalamic-relay"]).unwrap();
+        assert_eq!(
+            cli.udp_addr,
+            "127.0.0.1:9898".parse::<std::net::SocketAddr>().unwrap()
+        );
+        assert_eq!(
+            cli.metrics_ip,
+            "127.0.0.1".parse::<std::net::IpAddr>().unwrap()
+        );
+        assert_eq!(cli.step_interval_ms, 100);
+        assert!(!cli.force_software_only);
+        assert_eq!(cli.num_channels, 16);
+        assert_eq!(cli.num_lif, 16);
+        assert_eq!(cli.num_izh, 5);
+    }
+
+    #[test]
+    fn parses_force_software_only_false() {
+        let cli = Cli::try_parse_from(["thalamic-relay", "--force-software-only=false"]).unwrap();
+        assert!(!cli.force_software_only);
+    }
+
+    #[test]
+    fn cli_rejects_zero_channels() {
+        let result = Cli::try_parse_from(["thalamic-relay", "--num-channels", "0"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_nonzero_usize_rejects_zero_and_parses_positive() {
+        assert!(parse_nonzero_usize("0").is_err());
+        assert!(parse_nonzero_usize("abc").is_err());
+        assert_eq!(parse_nonzero_usize("8").unwrap(), 8);
+    }
+
+    #[test]
+    fn lock_guard_created_and_removed() {
+        let lock_path = "/tmp/thalamic_relay_test_created.lock";
+        let _ = std::fs::remove_file(lock_path);
+        let guard = try_acquire_lock(lock_path).unwrap();
+        assert!(std::path::Path::new(lock_path).exists());
+        drop(guard);
+        assert!(!std::path::Path::new(lock_path).exists());
+    }
+
+    #[test]
+    fn lock_guard_rejects_active_pid() {
+        let lock_path = "/tmp/thalamic_relay_test_active.lock";
+        let _ = std::fs::remove_file(lock_path);
+        std::fs::write(lock_path, std::process::id().to_string()).unwrap();
+        let err = try_acquire_lock(lock_path).unwrap_err();
+        assert!(
+            err.contains("already active"),
+            "expected active-instance error, got: {err}"
+        );
+        let _ = std::fs::remove_file(lock_path);
+    }
+
+    #[test]
+    fn lock_guard_reclaims_stale_lock() {
+        let lock_path = "/tmp/thalamic_relay_test_stale.lock";
+        let _ = std::fs::remove_file(lock_path);
+        std::fs::write(lock_path, "0").unwrap();
+        let guard = try_acquire_lock(lock_path).unwrap();
+        let content = std::fs::read_to_string(lock_path).unwrap();
+        assert_eq!(content.trim(), std::process::id().to_string());
+        drop(guard);
+        assert!(!std::path::Path::new(lock_path).exists());
+    }
+
+    #[test]
+    fn stimuli_missing_or_non_array_values_does_not_apply() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.5_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        client
+            .send_to(r#"{"type":"Stimuli"}"#.as_bytes(), relay_addr)
+            .unwrap();
+        client
+            .send_to(r#"{"type":"Stimuli","values":1.0}"#.as_bytes(), relay_addr)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(
+            !applied,
+            "stimuli without an array of values should not be applied"
+        );
+        assert!(stimuli.iter().all(|&v| v == 0.5));
+    }
+
+    #[test]
+    fn learning_reward_with_invalid_deltas_does_not_change_modulators() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+        let before = mods;
+
+        let msg = r#"{"type":"LearningReward","dopamine_delta":"bad","cortisol_delta":-0.1}"#;
+        client.send_to(msg.as_bytes(), relay_addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(!applied);
+        assert_eq!(mods.dopamine, before.dopamine);
+        assert_eq!(mods.cortisol, before.cortisol);
+    }
+
+    #[test]
+    fn unknown_udp_type_does_not_panic() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        client
+            .send_to(r#"{"type":"UnknownType"}"#.as_bytes(), relay_addr)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(!applied);
+    }
+
+    #[test]
+    fn invalid_utf8_does_not_panic() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        client.send_to(&[0x80, 0x81, 0x82], relay_addr).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(!applied);
+    }
+
+    #[test]
+    fn multiple_udp_messages_processed_in_order() {
+        let (relay, client, relay_addr) = setup_sockets();
+        let mut stimuli = vec![0.0_f32; 4];
+        let mut mods = NeuroModulators::default();
+
+        client
+            .send_to(
+                r#"{"type":"LearningReward","dopamine_delta":0.1}"#.as_bytes(),
+                relay_addr,
+            )
+            .unwrap();
+        client
+            .send_to(
+                r#"{"type":"Stimuli","values":[0.25, -0.25, 0.0, 1.5]}"#.as_bytes(),
+                relay_addr,
+            )
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let applied = process_udp_messages(&relay, &mut stimuli, &mut mods, 0);
+        assert!(applied);
+        assert_eq!(stimuli[0], 0.25);
+        assert_eq!(stimuli[1], -0.25);
+        assert_eq!(stimuli[2], 0.0);
+        assert_eq!(stimuli[3], 1.0); // clamped to 1.0
+        assert!(mods.dopamine > NeuroModulators::default().dopamine);
     }
 }
