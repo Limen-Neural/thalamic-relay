@@ -71,11 +71,15 @@ tick than the pulse, not just a later message. `process_udp_messages`
 drains every pending datagram from the socket in one pass before the
 single `network.step` call for that tick; two `Stimuli` messages sent back
 to back (pulse then reset) can both be drained in the same tick, so the
-reset overwrites the pulse before the network ever observes it. A client
-that needs the SNN to see the pulse for exactly one step has no
-acknowledgement or step-identifier in this API to synchronize on — the
-practical approach is to wait at least one `--step-interval-ms` interval
-after sending the pulse before sending the reset.
+reset overwrites the pulse before the network ever observes it. There is no
+acknowledgement or step-identifier in this API to synchronize on, so a
+client cannot reliably guarantee the SNN observes the pulse for exactly one
+step. Waiting roughly one `--step-interval-ms` interval after the pulse
+before sending the reset is a **best-effort** mitigation, not a guarantee —
+the interval between drains also includes per-tick processing time (safety
+checks, the network step itself, metrics/dashboard work), so a reset timed
+to exactly one interval can still land in the same drain as the pulse under
+load or scheduling jitter.
 
 Request:
 
