@@ -34,11 +34,26 @@ Source of truth: `process_udp_messages` in `src/main.rs`.
   is about avoiding accidental multi-value framing, not a hard parser
   requirement.
 - **Encoding**: UTF-8 text. Non-UTF-8 datagrams are silently dropped.
-- **Max datagram size read**: 4096 bytes per receive; larger datagrams are
-  truncated to that buffer size by the OS/socket read and will typically fail
-  to parse as JSON.
+- **Max datagram size read**: 4096 bytes per receive; a larger datagram is
+  truncated to that buffer size by the OS/socket read, and the discarded
+  tail is invisible to the relay. This usually makes the truncated bytes
+  fail to parse as JSON, but **not always**: if the first 4096 bytes happen
+  to contain one complete, well-formed JSON value followed only by
+  whitespace, the parser accepts it as a normal message even though the
+  datagram was oversized and had additional (silently dropped) content
+  after it. Keep every datagram comfortably under 4096 bytes; do not rely
+  on oversized datagrams being rejected.
 - The relay drains all pending datagrams each step-loop tick (non-blocking
-  socket) and processes them in the order received.
+  socket) and processes them in the order the local socket returns them
+  that tick. **UDP itself gives no cross-datagram guarantees**: on a
+  non-loopback path, datagrams can be dropped, duplicated, or delivered out
+  of the order they were sent, and this API has no acknowledgement,
+  sequencing, or retry mechanism. A dropped reset leaves a `Stimuli` pulse
+  active indefinitely (see the persistence note below); a reordered reset
+  can erase a pulse before it lands. Applications that need reliable,
+  ordered delivery must build that on top of this protocol themselves (or
+  restrict use to loopback, where delivery is effectively reliable and
+  ordered in practice).
 
 ## Error behavior
 
