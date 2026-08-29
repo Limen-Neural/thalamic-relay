@@ -100,6 +100,18 @@ Request:
   applied — **negative deltas are silently dropped and have no effect** on
   the corresponding modulator. This message type currently applies only
   positive reward/stress; use it to add dopamine/cortisol, not subtract.
+- The delta is added to the current level and the result is capped at an
+  upper bound of `1.0` (`neuromod`'s `add_reward`/`add_stress` apply
+  `(current + delta).min(1.0)`): a large or cumulative delta can saturate
+  dopamine/cortisol at `1.0` rather than being fully reflected.
+- **Levels decay every SNN step, independent of this message.** The main
+  loop calls `modulators.decay()` once per step (after applying any
+  `LearningReward` received that step), which multiplies dopamine by
+  `0.95` and cortisol by `0.90` (`neuromod`'s per-step decay constants). A
+  level set by `LearningReward` is at its applied value only until the next
+  step; a `GetNeuroState` reply reflects whatever decay has occurred since,
+  so its value depends on step timing (`--step-interval-ms`), not just the
+  accumulated deltas.
 - No reply is sent.
 
 ### `GetNeuroState`
