@@ -12,10 +12,21 @@ Source of truth: `process_udp_messages` in `src/main.rs`.
 - **Default bind address**: `127.0.0.1:9898`.
 - **Configurable via**: `--udp-addr` flag or `THALAMIC_UDP_ADDR` env var (CLI
   flag takes precedence). Accepts any valid `ip:port` socket address.
-- **Message framing**: one JSON object per UDP datagram. Messages are
-  **newline-free** — do not append `\n` or otherwise batch multiple JSON
-  objects in a single datagram; only the first parses and any trailing bytes
-  are part of that same JSON payload, not a second message.
+  **The socket is unauthenticated**: `Stimuli` and `LearningReward` are
+  accepted, and `GetNeuroState` is answered, for any sender that can reach
+  the bound address, with no credential check. The `127.0.0.1` default keeps
+  this loopback-only; binding to a non-loopback address exposes control of
+  the relay to anything on that network and must be paired with a trusted
+  firewall or equivalent network-level protection.
+- **Message framing**: one JSON object per UDP datagram, parsed with
+  `serde_json::from_str` against the full datagram body. A datagram
+  containing two concatenated JSON objects (e.g. `{...}{...}`) fails to
+  parse (`serde_json` rejects the trailing characters after the first
+  value), so **do not batch multiple JSON objects in a single datagram**.
+  Trailing whitespace after the JSON value — including a trailing `\n` — is
+  accepted by the parser; the recommendation to send newline-free datagrams
+  is about avoiding accidental multi-value framing, not a hard parser
+  requirement.
 - **Encoding**: UTF-8 text. Non-UTF-8 datagrams are silently dropped.
 - **Max datagram size read**: 4096 bytes per receive; larger datagrams are
   truncated to that buffer size by the OS/socket read and will typically fail
@@ -31,9 +42,13 @@ The relay is intentionally lenient and never panics on malformed input:
 - A datagram that is not valid JSON is dropped.
 - A JSON object with a `"type"` that isn't a recognized value (or has no
   `"type"` field at all) is dropped.
-- A recognized message with missing/malformed fields (wrong JSON type, out of
-  range, etc.) is dropped for the fields that fail; see per-message notes
-  below.
+- A recognized message with missing or malformed fields does **not** cause
+  the whole message to be dropped in general — behavior is per-field and
+  per-message-type (e.g. `Stimuli` clamps out-of-range numbers and coerces
+  non-number elements to `0.0`; `LearningReward` defaults missing/malformed
+  deltas to `0.0`). See the per-message sections below for the exact rule in
+  each case; `Stimuli` is the one type where a structurally invalid `values`
+  field (missing, or not an array) does drop the whole message.
 - **No error replies are sent.** The only message type that sends any
   response is `GetNeuroState`. All other messages are fire-and-forget: there
   is no ack, and no error is returned to the sender on failure.
@@ -133,4 +148,5 @@ echo -n '{"type":"LearningReward","dopamine_delta":0.3,"cortisol_delta":0.1}' | 
 echo -n '{"type":"GetNeuroState"}' | nc -u -w1 127.0.0.1 9898
 ```
 
-Note `-n` (no trailing newline) — see the newline-free framing note above.
+Note `-n` (no trailing newline) — kept for a clean single-object datagram, per
+the message framing note above.
