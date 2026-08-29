@@ -60,7 +60,13 @@ following.
 
 ### `Stimuli`
 
-Drives the SNN's input channels for the next step.
+Sets the SNN's input channel values. **These values persist across every
+subsequent SNN step** — the relay does not clear or decay them after a
+step — so a one-shot pulse is not automatic: a channel keeps contributing
+whatever value it was last set to on every future step until a later
+`Stimuli` message overwrites that channel (e.g. with `0.0`). Clients that
+want a single-step pulse must send a follow-up `Stimuli` message resetting
+the affected channels back to `0.0`.
 
 Request:
 
@@ -74,7 +80,7 @@ Request:
 - At most `N` values are applied, where `N` is the configured channel count
   (`--num-channels` / `THALAMIC_NUM_CHANNELS`, default `16`). Extra values
   beyond `N` are ignored; fewer values than `N` leave the remaining channels
-  unchanged (not reset to zero).
+  unchanged (not reset to zero) — see the persistence note above.
 - A value that isn't a JSON number is treated as `0.0` before clamping.
 - No reply is sent.
 
