@@ -55,9 +55,13 @@ Source of truth: `process_udp_messages` in `src/main.rs`.
   so a burst of datagrams sent faster than that can still overflow the
   kernel's finite UDP receive buffer and drop packets even on `127.0.0.1`.
   Applications that need reliable, ordered delivery must build that on top
-  of this protocol themselves (acknowledgement, sequence numbers, or
-  pacing sends to the relay's step interval); loopback only reduces the
-  risk, it does not remove it.
+  of this protocol themselves (application-level acknowledgement, sequence
+  numbers, and retries — this API provides none of them). Pacing sends to
+  roughly the relay's step interval is a separate, best-effort mitigation
+  for the receive-buffer-overflow case above; it does nothing for
+  ordinary network-level packet loss, duplication, or reordering, so it is
+  not a substitute for acknowledgement/sequencing when real reliability is
+  required. Loopback only reduces overall risk, it does not remove it.
 
 ## Error behavior
 
