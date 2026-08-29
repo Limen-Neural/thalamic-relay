@@ -45,15 +45,19 @@ Source of truth: `process_udp_messages` in `src/main.rs`.
   on oversized datagrams being rejected.
 - The relay drains all pending datagrams each step-loop tick (non-blocking
   socket) and processes them in the order the local socket returns them
-  that tick. **UDP itself gives no cross-datagram guarantees**: on a
-  non-loopback path, datagrams can be dropped, duplicated, or delivered out
-  of the order they were sent, and this API has no acknowledgement,
-  sequencing, or retry mechanism. A dropped reset leaves a `Stimuli` pulse
-  active indefinitely (see the persistence note below); a reordered reset
-  can erase a pulse before it lands. Applications that need reliable,
-  ordered delivery must build that on top of this protocol themselves (or
-  restrict use to loopback, where delivery is effectively reliable and
-  ordered in practice).
+  that tick. **UDP itself gives no cross-datagram guarantees**: datagrams
+  can be dropped, duplicated, or delivered out of order, and this API has
+  no acknowledgement, sequencing, or retry mechanism. A dropped reset
+  leaves a `Stimuli` pulse active indefinitely (see the persistence note
+  below); a reordered reset can erase a pulse before it lands. This risk is
+  highest on a non-loopback network path, but **loopback does not
+  eliminate it**: the relay only drains the socket once per step-loop tick,
+  so a burst of datagrams sent faster than that can still overflow the
+  kernel's finite UDP receive buffer and drop packets even on `127.0.0.1`.
+  Applications that need reliable, ordered delivery must build that on top
+  of this protocol themselves (acknowledgement, sequence numbers, or
+  pacing sends to the relay's step interval); loopback only reduces the
+  risk, it does not remove it.
 
 ## Error behavior
 
