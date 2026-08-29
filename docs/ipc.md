@@ -95,6 +95,10 @@ step — so a one-shot pulse is not automatic: a channel keeps contributing
 whatever value it was last set to on every future step until a later
 `Stimuli` message overwrites that channel (e.g. with `0.0`).
 
+**Note:** on a freshly started relay, `Stimuli` values do not currently
+produce LIF spikes, and `lif_spike_count` (see `GetNeuroState` below) stays
+at `0` regardless of what is sent here — see that field's entry for why.
+
 To reset a channel after a pulse, the reset must land in a **later** step
 tick than the pulse, not just a later message. `process_udp_messages`
 drains every pending datagram from the socket in one pass before the
@@ -179,7 +183,7 @@ datagram, JSON-encoded):
   "dopamine": 0.42,
   "cortisol": 0.10,
   "acetylcholine": 0.0,
-  "lif_spike_count": 7
+  "lif_spike_count": 0
 }
 ```
 
@@ -188,7 +192,7 @@ datagram, JSON-encoded):
 | `dopamine`         | number  | Current dopamine level (`f32`)                          |
 | `cortisol`         | number  | Current cortisol level (`f32`)                          |
 | `acetylcholine`    | number  | Current acetylcholine level (`f32`). **Always `0.0` in the current relay**: raising it requires `neuromod`'s `boost_focus`, which nothing in `src/main.rs` calls, and decay never increases it — so this field is fixed at its default until a future relay version wires up a focus signal. |
-| `lif_spike_count`  | integer | LIF (Leaky Integrate-and-Fire) spike count from the most recently completed SNN step |
+| `lif_spike_count`  | integer | LIF (Leaky Integrate-and-Fire) spike count from the most recently completed SNN step. **Always `0` on a freshly started relay, and stays `0` indefinitely**: `SpikingNetwork::with_dimensions` initializes every LIF neuron's input weights to `0.0`, input current to a LIF neuron is `weight × stimulus`, and the relay never loads or otherwise initializes weights — so no `Stimuli` value can drive a LIF neuron's membrane potential above threshold. `neuromod`'s reward-modulated STDP (`apply_stdp`) is the only thing that raises a weight above `0.0`, but it only updates a neuron's weights *after* that neuron has already spiked at least once, so it can never bootstrap a first spike. In the current relay, this field is not a useful signal until something (a future relay change) initializes non-zero LIF weights. |
 
 If the reply fails to send (e.g. the source address is unreachable), the
 failure is silently ignored — the relay does not retry or log.
