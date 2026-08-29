@@ -45,7 +45,18 @@ Source of truth: `process_udp_messages` in `src/main.rs`.
   on oversized datagrams being rejected.
 - The relay drains all pending datagrams each step-loop tick (non-blocking
   socket) and processes them in the order the local socket returns them
-  that tick. **UDP itself gives no cross-datagram guarantees**: datagrams
+  that tick. **This drain is uncapped**: `process_udp_messages` loops on
+  `socket.recv_from` until it returns `WouldBlock` (no pending datagram),
+  with no limit on how many datagrams it processes in one call. A sender
+  that keeps the socket continuously non-empty — whether malicious, buggy,
+  or just a much higher send rate than intended — can keep the relay inside
+  this drain indefinitely, starving the rest of the step loop (the SNN
+  step, neuromodulator decay, and GPU thermal/power safety checks) for as
+  long as the flood continues. This is a real starvation risk, not just a
+  theoretical one, and is reachable by any sender that can reach the bound
+  address (see the unauthenticated-socket note above); it is not currently
+  mitigated by a per-tick processing cap in the relay itself.
+  **UDP itself gives no cross-datagram guarantees**: datagrams
   can be dropped, duplicated, or delivered out of order, and this API has
   no acknowledgement, sequencing, or retry mechanism. A dropped reset
   leaves a `Stimuli` pulse active indefinitely (see the persistence note
