@@ -14,10 +14,16 @@ Source of truth: `process_udp_messages` in `src/main.rs`.
   flag takes precedence). Accepts any valid `ip:port` socket address.
   **The socket is unauthenticated**: `Stimuli` and `LearningReward` are
   accepted, and `GetNeuroState` is answered, for any sender that can reach
-  the bound address, with no credential check. The `127.0.0.1` default keeps
-  this loopback-only; binding to a non-loopback address exposes control of
-  the relay to anything on that network and must be paired with a trusted
-  firewall or equivalent network-level protection.
+  the bound address, with no credential check. **Traffic is also cleartext**:
+  plain UDP carries the JSON with no confidentiality or integrity
+  protection, so anything on-path between client and relay can read or
+  modify messages in transit. The `127.0.0.1` default keeps this
+  loopback-only. Binding to a non-loopback address exposes control of the
+  relay to anything on that network; a firewall alone only restricts *who*
+  can reach the socket; it does not add confidentiality or integrity for
+  the traffic itself. Non-loopback deployments should tunnel this traffic
+  through an authenticated, encrypted channel (e.g. a WireGuard/SSH tunnel
+  or VPN) rather than relying on network access control alone.
 - **Message framing**: one JSON object per UDP datagram, parsed with
   `serde_json::from_str` against the full datagram body. A datagram
   containing two concatenated JSON objects (e.g. `{...}{...}`) fails to
