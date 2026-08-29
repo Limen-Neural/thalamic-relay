@@ -64,9 +64,18 @@ Sets the SNN's input channel values. **These values persist across every
 subsequent SNN step** — the relay does not clear or decay them after a
 step — so a one-shot pulse is not automatic: a channel keeps contributing
 whatever value it was last set to on every future step until a later
-`Stimuli` message overwrites that channel (e.g. with `0.0`). Clients that
-want a single-step pulse must send a follow-up `Stimuli` message resetting
-the affected channels back to `0.0`.
+`Stimuli` message overwrites that channel (e.g. with `0.0`).
+
+To reset a channel after a pulse, the reset must land in a **later** step
+tick than the pulse, not just a later message. `process_udp_messages`
+drains every pending datagram from the socket in one pass before the
+single `network.step` call for that tick; two `Stimuli` messages sent back
+to back (pulse then reset) can both be drained in the same tick, so the
+reset overwrites the pulse before the network ever observes it. A client
+that needs the SNN to see the pulse for exactly one step has no
+acknowledgement or step-identifier in this API to synchronize on — the
+practical approach is to wait at least one `--step-interval-ms` interval
+after sending the pulse before sending the reset.
 
 Request:
 
@@ -76,7 +85,11 @@ Request:
 
 - `values`: array of numbers (parsed as `f32`). Required, must be a JSON
   array or the message is ignored entirely (no partial apply).
-- Each element is clamped to `[-1.0, 1.0]` before being applied.
+- Each element is clamped to `[-1.0, 1.0]` before being applied. **Only the
+  magnitude reaches the network**: the pinned `neuromod` 0.4.0
+  `SpikingNetwork::step` applies `.abs()` to every stimulus value before
+  using it, so `-0.2` and `0.2` drive the network identically. The sign has
+  no inhibitory effect; the effective input range is `[0.0, 1.0]`.
 - At most `N` values are applied, where `N` is the configured channel count
   (`--num-channels` / `THALAMIC_NUM_CHANNELS`, default `16`). Extra values
   beyond `N` are ignored; fewer values than `N` leave the remaining channels
@@ -132,7 +145,7 @@ datagram, JSON-encoded):
 {
   "dopamine": 0.42,
   "cortisol": 0.10,
-  "acetylcholine": 0.85,
+  "acetylcholine": 0.0,
   "lif_spike_count": 7
 }
 ```
@@ -141,7 +154,7 @@ datagram, JSON-encoded):
 |--------------------|---------|----------------------------------------------------------|
 | `dopamine`         | number  | Current dopamine level (`f32`)                          |
 | `cortisol`         | number  | Current cortisol level (`f32`)                          |
-| `acetylcholine`    | number  | Current acetylcholine level (`f32`)                     |
+| `acetylcholine`    | number  | Current acetylcholine level (`f32`). **Always `0.0` in the current relay**: raising it requires `neuromod`'s `boost_focus`, which nothing in `src/main.rs` calls, and decay never increases it — so this field is fixed at its default until a future relay version wires up a focus signal. |
 | `lif_spike_count`  | integer | LIF (Leaky Integrate-and-Fire) spike count from the most recently completed SNN step |
 
 If the reply fails to send (e.g. the source address is unreachable), the
