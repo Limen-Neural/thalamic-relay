@@ -47,6 +47,18 @@ pulled from crates.io via `neuromod` in `Cargo.toml`; build with a plain
 - Prometheus metrics on `http://localhost:9000/metrics` (bind IP (Internet Protocol) configurable via --metrics-ip).
 - Both bind on startup, so only one instance can run at a time.
 
+### Responding to automated PR review bots
+
+This repo runs several automated reviewers (CodeRabbit, Codex, Amazon Q,
+cubic, CodeAnt). Verify each finding against the actual source — including
+pinned dependency source (e.g. `neuromod`, via `cargo fetch` into a scratch
+crate if not already cached) when the finding concerns a dependency's
+behavior — before fixing it. Don't fix mechanically: skip or push back (with
+a short reply explaining why) on anything already handled, restated, or
+wrong, and don't let a "fix" overstate a guarantee the code doesn't actually
+provide. See `CLAUDE.md` for more detail and the concrete lessons from PR
+#38 (`docs/ipc.md`).
+
 ## Boundaries
 
 - **Owns**: `src/`, `Cargo.toml`, `README.md`, `AGENTS.md`, `docs/`
