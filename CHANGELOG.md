@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Added `docs/ipc.md`, a normative contract for the UDP IPC surface (`Stimuli` / `LearningReward` / `GetNeuroState` request/reply schemas, error behavior, `--num-channels` interaction), cross-linked from `README.md` and `AGENTS.md` (#28)
 - Documented and single-sourced the MSRV as `rust-version = "1.97.1"` in `Cargo.toml` (#30)
 
 ## [0.1.0] - 2026-07-16

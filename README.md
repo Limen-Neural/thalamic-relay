@@ -58,6 +58,9 @@ While running it exposes two interfaces (addresses configurable via CLI/env; see
     apply reward/stress modulation
   - `{"type":"GetNeuroState"}` — returns a JSON snapshot of the current
     neuromodulator levels and spike count
+
+  See [`docs/ipc.md`](docs/ipc.md) for the normative message contract
+  (full field schemas, clamping/error behavior, and reply shapes).
 - **Prometheus metrics** on `http://localhost:9000/metrics` (bind IP configurable via --metrics-ip)
 
 ## Architecture

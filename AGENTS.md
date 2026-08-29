@@ -42,11 +42,13 @@ pulled from crates.io via `neuromod` in `Cargo.toml`; build with a plain
 - **UDP (User Datagram Protocol)** on `127.0.0.1:9898` (or your --udp-addr; newline-free JSON):
   `{"type":"LearningReward","dopamine_delta":..,"cortisol_delta":..}`, or
   `{"type":"GetNeuroState"}` (which replies with a JSON neuromodulator/spike state).
+  Normative contract (all `type` values, field schemas, `--num-channels`
+  interaction, error behavior): see [`docs/ipc.md`](docs/ipc.md).
 - Prometheus metrics on `http://localhost:9000/metrics` (bind IP (Internet Protocol) configurable via --metrics-ip).
 - Both bind on startup, so only one instance can run at a time.
 
 ## Boundaries
 
-- **Owns**: `src/`, `Cargo.toml`, `README.md`, `AGENTS.md`
+- **Owns**: `src/`, `Cargo.toml`, `README.md`, `AGENTS.md`, `docs/`
 - **Does Not Own**: sibling crates, `neuromod` upstream
 - **Off-limits**: do not edit sibling path-dependency crates, do not introduce mining/trading domain logic
